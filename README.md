@@ -13,7 +13,7 @@
 
 | 폴더 | 게임 | 상태 | 문서 |
 |---|---|---|---|
-| `games/sea/` | 해적선 (FTL식 실시간 함선 운영 로그라이크, 판타지 바다) | 🛠 설계 중 | (예정) |
+| `games/sea/` | 해적선 (FTL식 실시간 함선 운영 로그라이크, 판타지 바다) | 🛠 설계 중 | [ADR 0005](docs/adr/0005-genre-pirate-ship.md) · [핵심 설계](docs/sea/design/core.md) |
 | `games/estate/` | 게으른 영주 (영지를 몰래 망하게 하는 경영) | 🧊 얼림 | [설계](docs/estate/design/economy.md) · [튜토리얼](docs/estate/design/tutorial-script.md) · [개발 일지](docs/estate/devlog/) |
 | `games/boss/` | 학습하는 보스 (2D 소울라이크 · 3D 시험판 · 차원 전환) | 🧊 얼림 | [README](games/boss/README.md) · [설계](docs/boss/design/) · [개발 일지](docs/boss/devlog/) |
 
