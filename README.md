@@ -6,7 +6,7 @@
 | 항목 | 내용 |
 |---|---|
 | 상태 | M0 완료 · M1 재미 검증 진행 중 |
-| 플레이 | https://gisuk2.github.io/read-me-game/ · 3D 시험판: https://gisuk2.github.io/read-me-game/3d.html |
+| 플레이 | https://gisuk2.github.io/game-lab/ · 3D 시험판: https://gisuk2.github.io/game-lab/3d.html |
 | 기술 | TypeScript · Phaser · Three.js(3D 시험판) · Vite · Vitest · GitHub Actions / 분석: Python |
 
 ---
@@ -58,7 +58,7 @@ npm install -D vite typescript vitest
 ## 4. 폴더 구조
 
 ```
-read-me-game/
+game-lab/
 ├─ docs/            # 계획서, 설계 문서, 개발 일지, 기술 결정 기록
 ├─ src/
 │  ├─ main.ts       # 진입점

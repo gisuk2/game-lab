@@ -414,7 +414,7 @@ M1 전에 AI에게 거의 맡겨 하루 만에 버리는 프로토타입을 만�
 ### 8.1 저장소 구조
 
 ```
-read-me-game/
+game-lab/
 ├─ README.md                 # 소개, 플레이 링크, 실행법, 데모 GIF
 ├─ docs/
 │  ├─ 00_project-plan.md     # 이 문서
