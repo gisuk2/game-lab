@@ -1,74 +1,56 @@
-# READ ME (가칭)
+# game-lab
 
-> **"튜토리얼이 가르친 정석을, 보스가 학습해서 역이용한다."**
-> 플레이어의 습관을 학습해 공략해 오는 보스와 싸우는 탑다운 2D 소울라이크 브라우저 게임
+> 혼자 취미로 만드는 브라우저 게임 실험실. 게임마다 `games/<이름>/` 폴더 하나.
+> 아이디어 → 설계 문서 → 순수 로직 + 테스트 → 화면 순서로 만들고, 결정은 ADR로 남긴다.
 
 | 항목 | 내용 |
 |---|---|
-| 상태 | M0 완료 · M1 재미 검증 진행 중 |
-| 플레이 | https://gisuk2.github.io/game-lab/ · 3D 시험판: https://gisuk2.github.io/game-lab/3d.html |
-| 기술 | TypeScript · Phaser · Three.js(3D 시험판) · Vite · Vitest · GitHub Actions / 분석: Python |
+| 플레이 | https://gisuk2.github.io/game-lab/ (게임 목록) |
+| 기술 | TypeScript · Vite · Vitest · Canvas/DOM · Phaser(보스 2D) · Three.js(보스 3D) · GitHub Actions |
+| 그림 | 임시 그림은 Python(Pillow)으로 생성 → 나중에 에셋으로 교체 |
 
----
+## 게임
 
-## 1. 개요
+| 폴더 | 게임 | 상태 | 문서 |
+|---|---|---|---|
+| `games/sea/` | 해적선 (FTL식 실시간 함선 운영 로그라이크, 판타지 바다) | 🛠 설계 중 | (예정) |
+| `games/estate/` | 게으른 영주 (영지를 몰래 망하게 하는 경영) | 🧊 얼림 | [설계](docs/estate/design/economy.md) · [튜토리얼](docs/estate/design/tutorial-script.md) · [개발 일지](docs/estate/devlog/) |
+| `games/boss/` | 학습하는 보스 (2D 소울라이크 · 3D 시험판 · 차원 전환) | 🧊 얼림 | [README](games/boss/README.md) · [설계](docs/boss/design/) · [개발 일지](docs/boss/devlog/) |
 
-빈틈마다 늘 세 번째 타까지 때리던 플레이어에게, 보스가 어느 순간 그 세 번째 타를 패링하며 말한다. *"…이런 식으로 막던가?"*
+방향 전환 기록: [ADR](docs/adr/) · 아이디어: [아이디어 노트](docs/ideas/idea-notes.md) · 전체 계획(이력): [프로젝트 계획서](docs/00_project-plan.md)
 
-보스는 플레이어의 콤보 길이, 회피 궤적, 패링 타이밍을 학습하고, 녹화된 플레이어의 실제 과거 움직임(잔상)을 보여주며 그 도착 지점을 노린다. 모든 학습은 서버나 LLM API 없이 브라우저 안에서 동작한다.
+## 명령어
 
-## 2. 문서
-
-| 문서 | 내용 |
+| 명령 | 하는 일 |
 |---|---|
-| [프로젝트 계획서](docs/00_project-plan.md) | 목표, 범위, AI 설계, 기술 스택, 시스템 구조, 마일스톤 |
-| [전투 시스템](docs/design/combat-system.md) | 조작, 자세 게이지, 일반 패턴, 적응 3단계, 공정성 원칙 |
-| [보스 패턴](docs/design/boss-patterns.md) | 잔상 시스템, 패턴 카드 |
-| [스토리](docs/design/story.md) | 세계관, 헬퍼, 막 구성, 전환점 |
-| [내러티브](docs/design/narrative.md) | 3막 구조, 헬퍼, 사망 리포트 |
-| [개발 일지](docs/devlog/) | 날짜별 작업 기록 |
-| [기술 결정 기록](docs/adr/) | 되돌리기 어려운 결정과 그 이유 |
-
-## 3. 실행 방법
-
-### 3.1 요구 사항
-
-- Node.js LTS (`node -v`로 확인)
-
-### 3.2 최초 설치 (처음 한 번)
-
-```bash
-npm install phaser
-npm install -D vite typescript vitest
-```
-
-> 버전을 미리 고정하지 않고 설치 시점의 최신 안정 버전을 받는다. 설치된 버전은 `package.json`에 기록되고, [ADR 0001](docs/adr/0001-tech-stack.md)에 옮겨 적는다.
-
-이후에는 `npm install`만 실행하면 된다.
-
-### 3.3 명령어
-
-| 명령어 | 내용 |
-|---|---|
-| `npm run dev` | 개발 서버 실행 (브라우저에서 확인) |
-| `npm test` | 테스트 실행 |
+| `npm install` | 처음 한 번 |
+| `npm run dev` | 개발 서버 → http://localhost:5173/ 에서 게임 목록 |
+| `npm test` | 모든 게임의 테스트 |
 | `npm run typecheck` | 타입 검사 |
 | `npm run build` | 배포용 빌드 (`dist/`) |
+| `npx tsx games/estate/scripts/sim-economy.ts` | 영주 게임 경제 전략 봇 비교 |
 
-## 4. 폴더 구조
+## 폴더 구조
 
 ```
 game-lab/
-├─ docs/            # 계획서, 설계 문서, 개발 일지, 기술 결정 기록
-├─ src/
-│  ├─ main.ts       # 진입점
-│  ├─ scenes/       # Phaser 씬
-│  └─ utils/        # 순수 함수
-├─ tests/           # Vitest
-├─ analysis/        # Python 분석 (M4~)
-└─ .github/workflows/deploy.yml   # 자동 배포
+├─ index.html              # 게임 목록 (첫 화면)
+├─ games/
+│  └─ <게임>/
+│     ├─ index.html        # 그 게임 페이지
+│     ├─ src/              # 코드 (순수 로직 / 화면)
+│     ├─ tests/            # Vitest
+│     ├─ scripts/ tools/   # 시뮬레이션·그림 생성 도구 (있으면)
+├─ public/<게임>/          # 그림 등 정적 파일 (URL: /<게임>/...)
+├─ docs/
+│  ├─ adr/                 # 큰 결정 (번호는 저장소 전체에서 이어짐)
+│  ├─ ideas/               # 아이디어 노트
+│  └─ <게임>/design, devlog
+└─ .github/workflows/deploy.yml   # main에 푸시하면 테스트 → 빌드 → GitHub Pages
 ```
 
-## 5. 개발 방식
+새 게임 추가: `games/<이름>/index.html` 만들고 → `vite.config.ts`의 `GAMES`에 한 줄 → 첫 화면 `index.html` 목록에 카드 하나.
 
-AI 코딩 도구를 활용해 개발하며, 그 과정을 [개발 일지](docs/devlog/)와 `docs/ai-vs-manual.md`에 기록한다. 이해하지 못한 채 넘어간 코드는 [이해 부채 목록](docs/understanding-debt.md)에 남긴다.
+## 개발 방식
+
+AI 코딩 도구와 함께 만들며, 과정을 개발 일지와 [AI vs 직접 작성 기록](docs/ai-vs-manual.md)에 남긴다. 이해하지 못한 채 넘어간 코드는 [이해 부채 목록](docs/understanding-debt.md)에.

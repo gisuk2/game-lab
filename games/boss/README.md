@@ -1,0 +1,77 @@
+# READ ME (가칭) — 학습하는 보스 (얼림)
+
+> 🧊 **얼림 (2026-11-12):** 그림 부담으로 장르를 바꾸며 멈춘 프로젝트. 저장소 전체 안내는 [game-lab README](../../README.md).
+
+> **"튜토리얼이 가르친 정석을, 보스가 학습해서 역이용한다."**
+> 플레이어의 습관을 학습해 공략해 오는 보스와 싸우는 탑다운 2D 소울라이크 브라우저 게임
+
+| 항목 | 내용 |
+|---|---|
+| 상태 | M0 완료 · M1 재미 검증 진행 중 |
+| 플레이 | https://gisuk2.github.io/game-lab/games/boss/ · 3D 시험판: https://gisuk2.github.io/game-lab/games/boss/3d.html |
+| 기술 | TypeScript · Phaser · Three.js(3D 시험판) · Vite · Vitest · GitHub Actions / 분석: Python |
+
+---
+
+## 1. 개요
+
+빈틈마다 늘 세 번째 타까지 때리던 플레이어에게, 보스가 어느 순간 그 세 번째 타를 패링하며 말한다. *"…이런 식으로 막던가?"*
+
+보스는 플레이어의 콤보 길이, 회피 궤적, 패링 타이밍을 학습하고, 녹화된 플레이어의 실제 과거 움직임(잔상)을 보여주며 그 도착 지점을 노린다. 모든 학습은 서버나 LLM API 없이 브라우저 안에서 동작한다.
+
+## 2. 문서
+
+| 문서 | 내용 |
+|---|---|
+| [프로젝트 계획서](../../docs/00_project-plan.md) | 목표, 범위, AI 설계, 기술 스택, 시스템 구조, 마일스톤 |
+| [전투 시스템](../../docs/boss/design/combat-system.md) | 조작, 자세 게이지, 일반 패턴, 적응 3단계, 공정성 원칙 |
+| [보스 패턴](../../docs/boss/design/boss-patterns.md) | 잔상 시스템, 패턴 카드 |
+| [스토리](../../docs/boss/design/story.md) | 세계관, 헬퍼, 막 구성, 전환점 |
+| [내러티브](../../docs/boss/design/narrative.md) | 3막 구조, 헬퍼, 사망 리포트 |
+| [개발 일지](../../docs/boss/devlog/) | 날짜별 작업 기록 |
+| [기술 결정 기록](../../docs/adr/) | 되돌리기 어려운 결정과 그 이유 |
+
+## 3. 실행 방법
+
+### 3.1 요구 사항
+
+- Node.js LTS (`node -v`로 확인)
+
+### 3.2 최초 설치 (처음 한 번)
+
+```bash
+npm install phaser
+npm install -D vite typescript vitest
+```
+
+> 버전을 미리 고정하지 않고 설치 시점의 최신 안정 버전을 받는다. 설치된 버전은 `package.json`에 기록되고, [ADR 0001](../../docs/adr/0001-tech-stack.md)에 옮겨 적는다.
+
+이후에는 `npm install`만 실행하면 된다.
+
+### 3.3 명령어
+
+| 명령어 | 내용 |
+|---|---|
+| `npm run dev` | 개발 서버 실행 (브라우저에서 확인) |
+| `npm test` | 테스트 실행 |
+| `npm run typecheck` | 타입 검사 |
+| `npm run build` | 배포용 빌드 (`dist/`) |
+
+## 4. 폴더 구조
+
+```
+games/boss/
+├─ index.html       # 2D 본편 (Phaser)
+├─ 3d.html          # 3D 시험판 (Three.js) · 차원 전환 실험
+├─ src/
+│  ├─ main.ts       # 2D 진입점
+│  ├─ scenes/ ui/   # Phaser 씬·화면
+│  ├─ three/        # 3D 시험판
+│  ├─ combat/ entities/ config/ dimension/ run/ input/ audio/ utils/   # 순수 로직 (2D·3D 공용)
+└─ tests/           # Vitest
+문서: docs/boss/design, docs/boss/devlog
+```
+
+## 5. 개발 방식
+
+AI 코딩 도구를 활용해 개발하며, 그 과정을 [개발 일지](../../docs/boss/devlog/)와 `docs/ai-vs-manual.md`에 기록한다. 이해하지 못한 채 넘어간 코드는 [이해 부채 목록](../../docs/understanding-debt.md)에 남긴다.

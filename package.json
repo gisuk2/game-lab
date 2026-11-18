@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "description": "플레이어의 습관을 학습해 공략해 오는 보스와 싸우는 탑다운 2D 소울라이크 브라우저 게임",
+  "description": "혼자 만드는 브라우저 게임 실험실 (게임마다 games/<이름>/)",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

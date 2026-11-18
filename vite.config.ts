@@ -7,16 +7,20 @@ import { defineConfig } from 'vite';
 // 로컬 개발(npm run dev)에서는 이 변수가 없으므로 '/'를 그대로 쓴다.
 const repoName = process.env.GITHUB_REPOSITORY?.split('/')[1];
 
+/** 페이지 목록: 첫 화면(게임 목록) + 게임별 페이지. 새 게임은 여기에 한 줄 추가 */
+const GAMES: Record<string, string> = {
+  main: './index.html',
+  boss: './games/boss/index.html',
+  boss3d: './games/boss/3d.html',
+  estate: './games/estate/index.html',
+};
+
 export default defineConfig({
   base: repoName ? `/${repoName}/` : '/',
   build: {
-    // 페이지 세 개: 2D 본편(index.html) + 3D 시험판(3d.html) + 영지 경영 실험판(estate.html). Vite 8부터 rollupOptions → rolldownOptions
+    // Vite 8부터 rollupOptions → rolldownOptions
     rolldownOptions: {
-      input: {
-        main: fileURLToPath(new URL('./index.html', import.meta.url)),
-        three: fileURLToPath(new URL('./3d.html', import.meta.url)),
-        estate: fileURLToPath(new URL('./estate.html', import.meta.url)),
-      },
+      input: Object.fromEntries(Object.entries(GAMES).map(([k, p]) => [k, fileURLToPath(new URL(p, import.meta.url))])),
     },
   },
 });

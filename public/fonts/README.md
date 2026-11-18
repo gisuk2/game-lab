@@ -6,4 +6,4 @@
 2. 압축을 풀고 `Galmuri11.woff2`, `Galmuri11-Bold.woff2` 를 이 폴더(`public/fonts/`)에 넣기
 3. 라이선스 파일(`OFL.txt`)도 같이 넣어 두기
 
-파일이 없으면 맑은 고딕으로 대신 보입니다 (`src/estate/estate.css`의 `@font-face`).
+파일이 없으면 맑은 고딕으로 대신 보입니다 (`games/estate/src/app/estate.css`의 `@font-face`).

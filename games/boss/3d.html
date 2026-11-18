@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>READ ME — 시점 전환 실험판</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #fff;
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #stage {
+        position: relative;
+        width: 960px;
+        height: 540px;
+        border: 1px solid #000;
+        overflow: hidden;
+        user-select: none;
+      }
+      #view canvas {
+        display: block;
+      }
+      .hud {
+        position: absolute;
+        font-size: 12px;
+        color: #000;
+        pointer-events: none;
+      }
+      #hud-left {
+        left: 16px;
+        top: 14px;
+      }
+      .bar {
+        width: 220px;
+        height: 10px;
+        border: 1px solid #000;
+        background: #fff;
+      }
+      .bar > div {
+        height: 100%;
+        background: #555;
+      }
+      #retries {
+        margin-top: 6px;
+      }
+      /* 체력: 붉은 바 / 스태미나: 얇은 회색 / 전환 게이지: 차가운 시스템 색 */
+      #hud-left .hp {
+        height: 12px;
+      }
+      #hp-fill {
+        background: #a3241f;
+      }
+      #hud-left .stamina {
+        height: 5px;
+        margin-top: 3px;
+      }
+      #hud-left .gauge {
+        width: 140px;
+        height: 6px;
+        margin-top: 6px;
+        border-color: #35506a;
+      }
+      #gauge-fill {
+        background: #6f93b0;
+      }
+      #gauge-fill.ready {
+        background: #c8e0f0;
+        box-shadow: 0 0 6px #6f93b0;
+      }
+      #hud-left .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-top: 6px;
+      }
+      #potions {
+        color: #a3241f;
+        letter-spacing: 2px;
+      }
+      #view-mode {
+        font-weight: 700;
+        color: #35506a;
+      }
+      #debug {
+        margin-top: 6px;
+        color: #777;
+      }
+      #hud-boss {
+        left: 50%;
+        bottom: 12px;
+        transform: translateX(-50%);
+        text-align: center;
+        background: rgba(255, 255, 255, 0.85);
+        padding: 4px 8px 6px;
+      }
+      #hud-boss .bar {
+        width: 520px;
+        height: 12px;
+        margin-top: 3px;
+      }
+      #boss-hp-fill {
+        background: #000;
+      }
+      #hud-boss .posture {
+        height: 5px;
+        border: none;
+        background: #eee;
+      }
+      #boss-posture-fill {
+        background: #d62828;
+      }
+      #hud-right {
+        right: 14px;
+        top: 12px;
+        text-align: right;
+        color: #888;
+        line-height: 1.6;
+      }
+      #hud-right a {
+        color: #888;
+        pointer-events: auto;
+      }
+      #toast {
+        left: 50%;
+        top: 64px;
+        transform: translateX(-50%);
+        font-family: ui-monospace, monospace;
+        font-size: 15px;
+        opacity: 0;
+        background: rgba(255, 255, 255, 0.85);
+        padding: 2px 8px;
+      }
+      #overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(255, 255, 255, 0.8);
+        font-size: 20px;
+        letter-spacing: 0.1em;
+      }
+      #overlay[hidden] {
+        display: none;
+      }
+      #overlay {
+        cursor: pointer;
+      }
+      /* 락온 표시: 보스 위의 작은 원 (위치는 매 프레임 transform으로) */
+      #lock-reticle {
+        position: absolute;
+        left: -9px;
+        top: -9px;
+        width: 14px;
+        height: 14px;
+        border: 2px solid #d62828;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8);
+        pointer-events: none;
+      }
+      #lock-reticle[hidden] {
+        display: none;
+      }
+      /* 되감기 연출: 주사선 + 색 번짐 + ◀◀ REWIND */
+      body.rewinding canvas {
+        filter: grayscale(0.7) sepia(0.25) contrast(1.35) brightness(0.8) blur(0.5px);
+      }
+      #vhs {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.13) 0 1px, transparent 1px 3px);
+        animation: vhs-jitter 0.12s steps(2) infinite;
+      }
+      #vhs[hidden] {
+        display: none;
+      }
+      #vhs::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 18%;
+        background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+        animation: vhs-band 0.7s linear infinite;
+      }
+      #vhs span {
+        position: absolute;
+        top: 26%;
+        left: 50%;
+        transform: translateX(-50%);
+        font: 700 34px/1 monospace;
+        letter-spacing: 3px;
+        color: #fff;
+        text-shadow: 2px 0 rgba(255, 0, 80, 0.8), -2px 0 rgba(0, 220, 255, 0.8);
+      }
+      @keyframes vhs-jitter {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(2px); }
+      }
+      @keyframes vhs-band {
+        0% { top: 100%; }
+        100% { top: -20%; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="view"></div>
+      <div id="hud-left" class="hud">
+        <div class="bar hp"><div id="hp-fill"></div></div>
+        <div class="bar stamina"><div id="stamina-fill"></div></div>
+        <div class="row">
+          <div class="bar gauge"><div id="gauge-fill"></div></div>
+          <span id="view-mode"></span>
+          <span id="potions"></span>
+        </div>
+        <div id="retries"></div>
+        <div id="debug"></div>
+      </div>
+      <div id="hud-boss" class="hud">
+        시련의 수문장
+        <div class="bar"><div id="boss-hp-fill"></div></div>
+        <div class="bar posture"><div id="boss-posture-fill"></div></div>
+      </div>
+      <div id="hud-right" class="hud">
+        시점 전환 실험판 · <span id="camera-mode"></span><br />
+        E 시점 전환 · Space 점프 · Shift 구르기 · F 회복약<br />
+        마우스 시점 · Q/휠 클릭 락온 (3D)<br />
+        P 도트 끄기/켜기 · C 전체 보기 · ESC · R 처음부터 · N 효과음<br />
+        <a href="./">2D 버전으로</a>
+      </div>
+      <div id="lock-reticle" hidden></div>
+      <div id="vhs" hidden><span>◀◀ REWIND</span></div>
+      <div id="toast" class="hud"></div>
+      <div id="overlay" hidden></div>
+    </div>
+    <script type="module" src="./src/three/main3d.ts"></script>
+  </body>
+</html>
