@@ -46,7 +46,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .frm:disabled { opacity: 0.45; cursor: default; }
 .frm small, .cd { font-size: 11px; color: #b8a888; }
 .ctrl { width: 120px; }
-.ctrl button { padding: 8px; background: #2a1f16; border: 1px solid #6a5a3a; }
+.ctrl button { padding: 5px; font-size: 13px; background: #2a1f16; border: 1px solid #6a5a3a; }
 
 #log { position: absolute; left: 470px; top: 430px; width: 360px; font-size: 13px; color: #cfe0f0; text-shadow: 0 1px 2px #000; pointer-events: none; }
 #tip { position: absolute; z-index: 5; background: rgba(20,14,8,0.95); border: 1px solid #c9a23a; padding: 6px 10px; font-size: 13px; line-height: 1.5; pointer-events: none; }

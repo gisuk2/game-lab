@@ -14,6 +14,10 @@ export const SYSTEM_ICON: Record<SystemId, string> = {
 };
 /** 마력을 꽂는 순서(화면 아래 막대 순서) */
 export const SYSTEM_ORDER: SystemId[] = ['ward', 'guns', 'oars', 'helm', 'pump', 'medic', 'scope', 'doors'];
+/** 선원이 서 있으면 주는 보너스 (화면 설명용, 실제 계산은 battle.ts) */
+export const MAN_BONUS: Partial<Record<SystemId, string>> = {
+  helm: '회피 +5% · 장대가 비면 회피 0', oars: '회피 +5%', ward: '결계 재충전 +25%', guns: '총통 충전 +10%',
+};
 /** 선원이 붙어 있으면 보너스가 있는 방 */
 export const MANNED: SystemId[] = ['helm', 'oars', 'ward', 'guns'];
 
@@ -43,18 +47,18 @@ export interface ShipDef {
 
 export const WEAPONS: Record<string, WeaponDef> = {
   // 조선 총통: 이름·크기 순서는 고증(천>지>현>황), 수치는 게임 설정
-  cheonja: { id: 'cheonja', name: '천자총통', power: 3, charge: 18, dmg: 3, shots: 1, breach: 0.7, fire: 0, crewDmg: 20, pierce: 1,
+  cheonja: { id: 'cheonja', name: '천자총통', power: 3, charge: 18, dmg: 3, shots: 1, breach: 0.7, fire: 0, crewDmg: 15, pierce: 1,
     acc: { far: 1, mid: 0.95, near: 0.7 }, blurb: '가장 큰 총통. 결계 한 겹을 뚫고 큰 구멍을 냄. 충전이 아주 느림' },
-  jija: { id: 'jija', name: '지자총통', power: 2, charge: 12, dmg: 2, shots: 1, breach: 0.5, fire: 0, crewDmg: 15,
+  jija: { id: 'jija', name: '지자총통', power: 2, charge: 12, dmg: 2, shots: 1, breach: 0.5, fire: 0, crewDmg: 12,
     acc: { far: 0.95, mid: 0.95, near: 0.8 }, blurb: '두 번째로 큰 총통. 피해 큼, 충전 느림' },
-  hyeonja: { id: 'hyeonja', name: '현자총통', power: 2, charge: 14, dmg: 1, shots: 2, breach: 0.2, fire: 0, crewDmg: 10,
+  hyeonja: { id: 'hyeonja', name: '현자총통', power: 2, charge: 14, dmg: 1, shots: 2, breach: 0.2, fire: 0, crewDmg: 8,
     acc: { far: 0.8, mid: 0.95, near: 0.9 }, blurb: '세 번째 크기. 두 발씩 쏘는 균형형' },
-  hwangja: { id: 'hwangja', name: '황자총통', power: 1, charge: 13, dmg: 1, shots: 1, breach: 0.1, fire: 0, crewDmg: 10,
+  hwangja: { id: 'hwangja', name: '황자총통', power: 1, charge: 13, dmg: 1, shots: 1, breach: 0.1, fire: 0, crewDmg: 8,
     acc: { far: 0.75, mid: 0.95, near: 0.95 }, blurb: '가장 작은 총통. 빠르게 결계를 두드림' },
   // 왜선 무기: 일반 명칭만 씀
-  jochong: { id: 'jochong', name: '조총 일제사격', power: 2, charge: 12, dmg: 1, shots: 3, breach: 0, fire: 0, crewDmg: 15,
+  jochong: { id: 'jochong', name: '조총 일제사격', power: 2, charge: 12, dmg: 1, shots: 3, breach: 0, fire: 0, crewDmg: 8,
     acc: { far: 0.35, mid: 0.7, near: 0.9 }, blurb: '조총을 한꺼번에 쏨. 가까울수록 무서움' },
-  waepo: { id: 'waepo', name: '왜 대포', power: 2, charge: 15, dmg: 2, shots: 1, breach: 0.4, fire: 0, crewDmg: 15,
+  waepo: { id: 'waepo', name: '왜 대포', power: 2, charge: 15, dmg: 2, shots: 1, breach: 0.4, fire: 0, crewDmg: 12,
     acc: { far: 0.8, mid: 0.9, near: 0.9 }, blurb: '왜선에 실은 대포' },
   bulhwasal: { id: 'bulhwasal', name: '불화살', power: 1, charge: 10, dmg: 1, shots: 1, breach: 0, fire: 0.5, crewDmg: 5,
     acc: { far: 0.6, mid: 0.9, near: 0.95 }, blurb: '불을 붙인 화살. 맞은 방에 불이 잘 붙음' },
@@ -123,8 +127,8 @@ export const RULES = {
   pump: 0.05, // 배수실 마력 1당 퍼내는 양(칸/초)
   slowWater: 0.3, offWater: 0.6, fullWater: 0.98,
   fireGrow: 0.05, fireSpread: 0.06, fireSpreadClosed: 0.015, fireFightCrew: 0.25, fireDouse: 0.8,
-  fireSysDmg: 0.1, fireCrewDmg: 5,
-  waterCrewDmg: [2, 6] as const,
+  fireSysDmg: 0.1, fireCrewDmg: 3,
+  waterCrewDmg: [1.5, 4] as const,
   repairBreach: 1 / 6, repairSys: 1 / 4,
   heal: 8,
   wardRecharge: 2,

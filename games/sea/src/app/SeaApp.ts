@@ -1,8 +1,8 @@
 // 이세계 수군 — 전투 화면 실험판 (SEA-1). 그림은 도형·아이콘만.
-import { Battle, Rng, type BattleEvent, type Ship, type Side } from '../sim/battle';
+import { Battle, Rng, type BattleEvent, type CrewTask, type Ship, type Side } from '../sim/battle';
 import { botThink } from '../sim/bot';
 import {
-  DISTANCE_NAME, FORMATIONS, PANOKSEON, RULES, SYSTEM_ICON, SYSTEM_NAME, SYSTEM_ORDER, WAESEON,
+  DISTANCE_NAME, FORMATIONS, MAN_BONUS, PANOKSEON, RULES, SYSTEM_ICON, SYSTEM_NAME, SYSTEM_ORDER, WAESEON,
   type Distance, type FormationId, type SystemId,
 } from '../sim/data';
 import { DISTANCES, rollScout, type ScoutResult } from '../sim/encounter';
@@ -21,6 +21,9 @@ const DIST_HINT: Record<Distance, string> = {
 const KIND_COLOR: Partial<Record<BattleEvent['kind'], string>> = {
   hit: '#ff6b5a', miss: '#b8b8b8', absorb: '#7fd0ff', breach: '#5fa8ff', fire: '#ffae3d', death: '#ff3d3d', sysdown: '#ffae3d',
 };
+
+const TASK_ICON: Partial<Record<CrewTask, string>> = { fire: '🧯', breach: '🪵', repair: '🔧', man: '⭐', heal: '💚' };
+const TASK_NAME: Record<CrewTask, string> = { move: '이동 중', fire: '불 끄는 중', breach: '구멍 막는 중', repair: '수리 중', man: '자리를 지킴', heal: '치료 중', idle: '쉬는 중' };
 
 interface Float { x: number; y: number; text: string; color: string; ttl: number }
 
@@ -45,6 +48,9 @@ export class SeaApp {
   private seed = 1;
   private scout: ScoutResult | null = null;
   private hover: { x: number; y: number } | null = null;
+  private drag: { x0: number; y0: number; x1: number; y1: number } | null = null;
+  private dragged = false;
+  private warned = new Set<number>();
   private logLines: string[] = [];
 
   constructor(root: HTMLElement) {
@@ -95,7 +101,7 @@ export class SeaApp {
     b.setPower(0, 'helm', 1); b.setPower(0, 'oars', 2);
     b.ships[0].volley = true;
     botThink(b, 1);
-    this.selected.clear(); this.aim = null; this.floats = []; this.evIdx = 0; this.enemyThink = 0; this.logLines = [];
+    this.selected.clear(); this.warned.clear(); this.aim = null; this.floats = []; this.evIdx = 0; this.enemyThink = 0; this.logLines = [];
     this.paused = true; this.hideModal();
     this.say(`${DISTANCE_NAME[d]} 전투 시작 — 스페이스바로 시간을 움직이세요`);
     this.renderPanel();
@@ -111,6 +117,7 @@ export class SeaApp {
     for (const f of this.floats) { f.ttl -= real; f.y -= real * 22; }
     this.floats = this.floats.filter((f) => f.ttl > 0);
     this.draw();
+    if (this.hover) this.updateTip();
     if (Math.floor(t / 250) !== Math.floor((t - real * 1000) / 250)) this.renderPanel();
     requestAnimationFrame((n) => this.frame(n));
   }
@@ -121,6 +128,10 @@ export class SeaApp {
     if (b.t >= this.enemyThink) { botThink(b, 1); this.enemyThink = b.t + 0.5; }
     b.step();
     for (; this.evIdx < b.events.length; this.evIdx++) this.onEvent(b.events[this.evIdx]);
+    for (const c of b.ships[0].crew) {
+      if (c.alive && c.hp < c.maxHp * 0.3 && !this.warned.has(c.id)) { this.warned.add(c.id); this.say(`❗ ${c.name} 위험! (피 ${Math.ceil(c.hp)}) — 의원실로 보내세요 (M)`); }
+      if (c.hp > c.maxHp * 0.6) this.warned.delete(c.id);
+    }
     if (b.result) this.finish();
   }
 
@@ -154,11 +165,25 @@ export class SeaApp {
     addEventListener('keydown', (e) => {
       if (e.code === 'Space') { e.preventDefault(); this.togglePause(); }
       if (e.code === 'Escape') { this.aim = null; this.selected.clear(); this.renderPanel(); }
+      if (e.code === 'KeyM') this.sendInjured();
+    });
+    this.cv.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || this.aim !== null) return;
+      const p = this.toStage(e); this.drag = { x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+    });
+    addEventListener('mouseup', (e) => {
+      const d = this.drag; this.drag = null; if (!d) return;
+      if (Math.abs(d.x1 - d.x0) < 10 && Math.abs(d.y1 - d.y0) < 10) return;
+      // 드래그: 상자 안의 선원을 모두 고름
+      const me = this.b.ships[0]; const [xa, xb] = [Math.min(d.x0, d.x1), Math.max(d.x0, d.x1)]; const [ya, yb] = [Math.min(d.y0, d.y1), Math.max(d.y0, d.y1)];
+      if (!e.shiftKey) this.selected.clear();
+      for (const c of me.crew) { if (!c.alive) continue; const q = crewPos(this.b, me, c, VIEWS[0]); if (q.x >= xa && q.x <= xb && q.y - 12 >= ya - 12 && q.y - 12 <= yb + 12) this.selected.add(c.id); }
+      this.dragged = true; this.renderPanel();
     });
     this.cv.addEventListener('contextmenu', (e) => { e.preventDefault(); this.aim = null; this.selected.clear(); this.renderPanel(); });
-    this.cv.addEventListener('mousemove', (e) => { this.hover = this.toStage(e); this.updateTip(); });
+    this.cv.addEventListener('mousemove', (e) => { this.hover = this.toStage(e); if (this.drag) { this.drag.x1 = this.hover.x; this.drag.y1 = this.hover.y; } this.updateTip(); });
     this.cv.addEventListener('mouseleave', () => { this.hover = null; this.tip.hidden = true; });
-    this.cv.addEventListener('click', (e) => this.clickAt(this.toStage(e), e.shiftKey));
+    this.cv.addEventListener('click', (e) => { if (this.dragged) { this.dragged = false; return; } this.clickAt(this.toStage(e), e.shiftKey); });
   }
   togglePause() { if (!this.b.result && this.modal.hidden) { this.paused = !this.paused; this.renderPanel(); } }
 
@@ -180,6 +205,15 @@ export class SeaApp {
     const r = roomAt(me, VIEWS[0], p.x, p.y);
     if (r && this.selected.size) { for (const id of this.selected) b.moveCrew(0, id, r); return; }
     if (!r) { this.selected.clear(); this.renderPanel(); }
+  }
+
+  /** 고른 선원(없으면 피가 70% 아래인 선원)을 의원실로 */
+  sendInjured() {
+    const b = this.b; const me = b.ships[0]; const med = b.roomOf(me, 'medic'); if (!med) return;
+    const who = this.selected.size ? me.crew.filter((c) => this.selected.has(c.id)) : me.crew.filter((c) => c.alive && c.hp < c.maxHp * 0.7);
+    if (!who.length) { this.say('다친 선원이 없음'); return; }
+    for (const c of who) b.moveCrew(0, c.id, med.id);
+    this.say(`⚕ ${who.map((c) => c.name).join('·')} → 의원실${b.ships[0].sys.medic!.power ? '' : ' (의원실에 마력을 꽂아야 치료됨)'}`);
   }
 
   powerUp(sys: SystemId, d: 1 | -1) { this.b.addPower(0, sys, d); this.renderPanel(); }
@@ -225,7 +259,7 @@ export class SeaApp {
       <div class="col systems">${sysBtns}</div>
       <div class="col weapons"><div class="lbl">총통 (클릭: 켜기·조준 · 우클릭: 끄기)</div><div class="wrow">${weapons}</div></div>
       <div class="col forms"><div class="lbl">진법</div>${forms}${cd}</div>
-      <div class="col ctrl"><label class="vol" title="결계가 있으면 한 발씩은 다 막힘. 켜 두면 조준한 총통이 다 찰 때까지 기다렸다 한꺼번에 쏨"><input type="checkbox" id="volley" ${s.volley ? 'checked' : ''}> 일제 사격</label><button id="pause">${this.paused ? '▶ 계속 (Space)' : '⏸ 멈춤 (Space)'}</button><button id="speed">속도 ×${this.speed}</button></div>`;
+      <div class="col ctrl"><label class="vol" title="결계가 있으면 한 발씩은 다 막힘. 켜 두면 조준한 총통이 다 찰 때까지 기다렸다 한꺼번에 쏨"><input type="checkbox" id="volley" ${s.volley ? 'checked' : ''}> 일제 사격</label><button id="medic" title="고른 선원, 없으면 피가 70% 아래인 선원을 의원실로">⚕ 의원실로 (M)</button><button id="pause">${this.paused ? '▶ 계속 (Space)' : '⏸ 멈춤 (Space)'}</button><button id="speed">속도 ×${this.speed}</button></div>`;
     // 내용이 바뀔 때만 다시 그림 (클릭 도중에 버튼이 바뀌어 클릭이 사라지지 않게)
     if (html !== this.panelHtml) { this.panelHtml = html; this.panel.innerHTML = html; this.bindPanel(); }
     s.weapons.forEach((w, i) => { const el = this.panel.querySelector<HTMLElement>(`[data-charge="${i}"]`); if (el) el.style.width = `${Math.round((w.charge / w.def.charge) * 100)}%`; });
@@ -249,6 +283,7 @@ export class SeaApp {
       const id = Number(el.dataset.c); if (!e.shiftKey) this.selected.clear(); this.selected.add(id); this.renderPanel();
     });
     this.panel.querySelector<HTMLInputElement>('#volley')!.onchange = (e) => { s.volley = (e.target as HTMLInputElement).checked; };
+    this.panel.querySelector<HTMLButtonElement>('#medic')!.onclick = () => this.sendInjured();
     this.panel.querySelector<HTMLButtonElement>('#pause')!.onclick = () => this.togglePause();
     this.panel.querySelector<HTMLButtonElement>('#speed')!.onclick = () => { this.speed = this.speed === 1 ? 2 : 1; this.renderPanel(); };
   }
@@ -268,7 +303,13 @@ export class SeaApp {
       if (x) lines.push(`마력 ${x.power}/${x.level}${x.damage ? ` · 고장 ${x.damage}` : ''}`);
       if (r.water > 0.01) lines.push(`물 ${Math.round((r.water / r.w) * 100)}%`);
       if (r.fire > 0) lines.push('🔥 불');
-      if (r.breach) lines.push('🕳 구멍 — 선원이 막아야 함');
+      if (r.breach) lines.push(`🕳 구멍 — 선원이 막아야 함${r.breachRepair > 0 ? ` (${Math.round(r.breachRepair * 100)}%)` : ''}`);
+      if (x && x.damage > 0 && x.repair > 0) lines.push(`🔧 수리 ${Math.round(x.repair * 100)}%`);
+      if (side === 0 || this.b.eff(this.b.ships[0], 'scope') > 0) {
+        const here = s.crew.filter((c) => c.alive && c.room === id && !c.path.length);
+        for (const c of here) lines.push(`${c.name}: ${TASK_NAME[this.b.crewTask(s, c)]}${this.b.crewTask(s, c) === 'man' && r.sys ? ` → ${MAN_BONUS[r.sys]}` : ''}`);
+        if (!here.length && r.sys && MAN_BONUS[r.sys] && side === 0) lines.push(`<span style="color:#b8a888">비어 있음 · 선원이 서 있으면: ${MAN_BONUS[r.sys]}</span>`);
+      }
       if (side === 1 && this.aim !== null) lines.push('<i>클릭해서 조준</i>');
       this.tip.innerHTML = lines.join('<br>'); this.tip.hidden = false;
       this.tip.style.left = `${Math.min(W - 200, p.x + 14)}px`; this.tip.style.top = `${p.y + 14}px`;
@@ -300,6 +341,21 @@ export class SeaApp {
     if (this.paused && this.modal.hidden && !b.result) {
       c.fillStyle = 'rgba(0,0,0,0.25)'; c.fillRect(0, 0, W, 540);
       c.fillStyle = '#f2d98a'; c.font = 'bold 22px sans-serif'; c.textAlign = 'center'; c.fillText('⏸ 일시정지 — 스페이스바로 계속', W / 2, 108);
+    }
+    if (this.drag && (Math.abs(this.drag.x1 - this.drag.x0) > 10 || Math.abs(this.drag.y1 - this.drag.y0) > 10)) {
+      const d = this.drag; c.strokeStyle = '#ffd36b'; c.lineWidth = 1.5; c.setLineDash([5, 4]);
+      c.strokeRect(Math.min(d.x0, d.x1), Math.min(d.y0, d.y1), Math.abs(d.x1 - d.x0), Math.abs(d.y1 - d.y0)); c.setLineDash([]);
+    }
+    const me = b.ships[0];
+    if (this.selected.size && this.aim === null && !b.result) {
+      const names = me.crew.filter((x) => this.selected.has(x.id) && x.alive).map((x) => x.name).join('·');
+      c.fillStyle = '#ffd36b'; c.font = 'bold 16px sans-serif'; c.textAlign = 'center';
+      c.fillText(`👆 ${names} — 갈 방을 클릭 (우클릭 취소 · M 의원실)`, VIEWS[0].ox + 290, 160);
+    }
+    if (!b.result && this.modal.hidden && !b.manned(me, 'helm')) {
+      const blink = Math.floor(performance.now() / 500) % 2 === 0;
+      c.fillStyle = blink ? '#ff6b5a' : '#c84a3a'; c.font = 'bold 15px sans-serif'; c.textAlign = 'left';
+      c.fillText('⚠ 장대가 비었음 — 회피 0', VIEWS[0].ox, 110);
     }
     if (this.aim !== null) { c.fillStyle = '#ffd36b'; c.font = 'bold 16px sans-serif'; c.textAlign = 'center'; c.fillText('🎯 왜선의 방을 클릭해서 조준 (우클릭 취소)', 1040, 160); }
   }
@@ -374,10 +430,32 @@ export class SeaApp {
       const p = crewPos(b, s, cr, v); const r = side === 0 ? 12 : 10;
       c.fillStyle = side === 0 ? '#e9d3a0' : '#c8584a';
       c.beginPath(); c.arc(p.x, p.y - r, r, 0, Math.PI * 2); c.fill();
-      if (this.selected.has(cr.id) && side === 0) { c.strokeStyle = '#ffd36b'; c.lineWidth = 3; c.stroke(); }
+      if (this.selected.has(cr.id) && side === 0) {
+        const pulse = 4 + Math.sin(performance.now() / 150) * 2;
+        c.strokeStyle = '#ffd36b'; c.lineWidth = 3; c.beginPath(); c.arc(p.x, p.y - r, r + pulse, 0, Math.PI * 2); c.stroke();
+      }
       c.fillStyle = '#222'; c.font = 'bold 11px sans-serif'; c.textAlign = 'center'; c.fillText(cr.name.slice(0, 1), p.x, p.y - r + 4);
       c.fillStyle = '#300'; c.fillRect(p.x - 12, p.y + 2, 24, 4);
       c.fillStyle = cr.hp > 50 ? '#6c6' : cr.hp > 25 ? '#dc4' : '#e44'; c.fillRect(p.x - 12, p.y + 2, 24 * (cr.hp / cr.maxHp), 4);
+      // 하는 일 아이콘 · 위험 표시
+      const icon = TASK_ICON[b.crewTask(s, cr)];
+      c.font = '14px sans-serif';
+      if (icon) c.fillText(icon, p.x, p.y - 2 * r - 6);
+      if (cr.hp < cr.maxHp * 0.3) { c.fillStyle = '#ff4a3a'; c.font = 'bold 16px sans-serif'; c.fillText('❗', p.x + r + 4, p.y - 2 * r); }
+    }
+    // 수리·구멍 막기 진행 막대
+    if (!fog) for (const r of s.rooms) {
+      const x = r.sys ? s.sys[r.sys] : undefined;
+      const prog = r.breach ? r.breachRepair : x && x.damage > 0 ? x.repair : 0;
+      if (prog <= 0) continue;
+      const q = roomRect(s, r.id, v);
+      c.fillStyle = '#222'; c.fillRect(q.x + 8, q.y + q.h - 10, q.w - 16, 5);
+      c.fillStyle = r.breach ? '#5fa8ff' : '#e0c060'; c.fillRect(q.x + 8, q.y + q.h - 10, (q.w - 16) * prog, 5);
+    }
+    // 고른 선원이 있을 때 마우스 올린 방
+    if (side === 0 && this.selected.size && this.hover && this.aim === null) {
+      const hv = roomAt(s, v, this.hover.x, this.hover.y);
+      if (hv) { const q = roomRect(s, hv, v); c.strokeStyle = '#ffd36b'; c.lineWidth = 2; c.strokeRect(q.x + 3, q.y + 3, q.w - 6, q.h - 6); }
     }
   }
 

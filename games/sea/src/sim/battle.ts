@@ -38,6 +38,7 @@ export interface Ship {
 export interface Projectile { from: Side; weapon: WeaponDef; target: string; t: number; total: number }
 export type EventKind = 'hit' | 'miss' | 'absorb' | 'breach' | 'fire' | 'death' | 'sysdown' | 'fired';
 export interface BattleEvent { t: number; side: Side; room?: string; kind: EventKind; text: string }
+export type CrewTask = 'move' | 'fire' | 'breach' | 'repair' | 'man' | 'heal' | 'idle';
 export interface Result { winner: Side; reason: 'hull' | 'crew' }
 
 export interface BattleOptions { seed?: number; formation?: [FormationId | null, FormationId | null] }
@@ -99,6 +100,18 @@ export class Battle {
     const x = s.sys[sys];
     const busy = r.fire > 0 || r.breach || (x?.damage ?? 0) > 0;
     return !busy && this.crewIn(s, r.id).length > 0;
+  }
+  /** 선원이 지금 하는 일 (화면 표시용, stepCrew와 같은 우선순위) */
+  crewTask(s: Ship, c: Crew): CrewTask {
+    if (!c.alive) return 'idle';
+    if (c.path.length) return 'move';
+    const r = this.room(s, c.room); const x = r.sys ? s.sys[r.sys] : undefined;
+    if (r.fire > 0) return 'fire';
+    if (r.breach) return 'breach';
+    if (x && x.damage > 0) return 'repair';
+    if (r.sys && MANNED.includes(r.sys)) return 'man';
+    if (r.sys === 'medic' && this.eff(s, 'medic') > 0 && c.hp < c.maxHp) return 'heal';
+    return 'idle';
   }
   evasion(s: Ship): number {
     if (this.eff(s, 'helm') < 1 || !this.manned(s, 'helm')) return 0;
