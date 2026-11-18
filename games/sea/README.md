@@ -7,5 +7,6 @@
 | 상태 | 🛠 설계 중 — 다음: 전투 한 판 실험판 (SEA-1) |
 | 결정 | [ADR 0005](../../docs/adr/0005-genre-pirate-ship.md) |
 | 설계 | [핵심 설계](../../docs/sea/design/core.md) |
+| 할 일 | [추후 패치 예정](../../docs/sea/backlog.md) |
 
 코드는 아직 없음. 구조 예정: `src/model`(순수 로직: 배·전투·승무원·지도) · `src/view`(Canvas 화면) · `tests/`
