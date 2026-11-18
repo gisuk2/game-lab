@@ -4,6 +4,8 @@ import { BOSS, WEAPON_NAME, isParryable, type BossPatternId } from '../config/bo
 import { HELPER_ANSWERS, HELPER_HINTS, HELPER_INTRO, WEAPON_ORDER } from '../data/helperBriefing';
 import { HintTracker } from '../run/HintTracker';
 import { WEAPON_ICONS } from '../ui/WeaponIcons';
+import { Sfx } from '../audio/Sfx';
+import { soundsFor, type SceneSound } from '../audio/sfxMap';
 import { CombatSystem, separation, type CombatEvent } from '../combat/CombatSystem';
 import { PROJECTILE_RULES as PROJECTILE_RULES_DEFAULT, ProjectileSystem } from '../combat/Projectiles';
 import { ProjectileView } from '../entities/ProjectileView';
@@ -74,6 +76,9 @@ const session: {
   hints: new HintTracker<BossPatternId>(),
 };
 
+/** 효과음 (씬이 재시작되어도 하나만: 브라우저 소리 잠금 해제를 한 번만 걸기 위해) */
+const sfx = new Sfx();
+
 /** 무기별 그림 카드 데이터 (패턴 설정에서 만든다) */
 const weaponCards = (): WeaponCard[] =>
   WEAPON_ORDER.map((w) => ({
@@ -126,6 +131,7 @@ export class GameScene extends Phaser.Scene {
   private restartKey!: Phaser.Input.Keyboard.Key;
   private modeKey!: Phaser.Input.Keyboard.Key;
   private resetKey!: Phaser.Input.Keyboard.Key;
+  private muteKey!: Phaser.Input.Keyboard.Key;
   private mapKey!: Phaser.Input.Keyboard.Key;
 
   private paused = false;
@@ -166,6 +172,7 @@ export class GameScene extends Phaser.Scene {
     this.restartKey = keyboard.addKey('R');
     this.modeKey = keyboard.addKey('M');
     this.resetKey = keyboard.addKey('K');
+    this.muteKey = keyboard.addKey('N');
     this.mapKey = keyboard.addKey('TAB'); // 브라우저 포커스 이동을 막고 게임이 받음
 
     this.pauseMenu = new PauseMenu({
@@ -235,6 +242,10 @@ export class GameScene extends Phaser.Scene {
       this.toast('텔레메트리 기록 초기화');
     }
     if (Phaser.Input.Keyboard.JustDown(this.mapKey)) this.resultScreen.toggleBigMap();
+    if (Phaser.Input.Keyboard.JustDown(this.muteKey)) {
+      this.toast(sfx.toggleMute() ? '효과음 끔' : '효과음 켬');
+      this.updateHelp();
+    }
 
     const dt = Math.min(delta, MAX_DT_MS);
     this.updateToast(dt);
@@ -277,6 +288,7 @@ export class GameScene extends Phaser.Scene {
     this.recordRun(bossEvents, combatEvents);
     this.applyFeedback(combatEvents);
     this.checkEnd(combatEvents);
+    sfx.play(soundsFor({ player: playerEvents, boss: bossEvents, combat: combatEvents }));
 
     this.draw(playerEvents, dt);
   }
@@ -309,6 +321,7 @@ export class GameScene extends Phaser.Scene {
     if (session.mode === 'checkpoint' && !this.boss.isDead && session.checkpoint.update(this.boss.hp / BOSS.maxHp)) {
       session.revive.reset();
       this.toast(`CHECKPOINT SAVED ${session.checkpoint.saved}/${CHECKPOINT_STAGES - 1}`);
+      this.sceneSound('checkpoint');
     }
 
     // 사망 기록
@@ -392,6 +405,7 @@ export class GameScene extends Phaser.Scene {
   private rewind(): void {
     if (!this.rewindPoint) return;
     restoreSnapshot(this.player, this.rewindPoint.player);
+    this.player.recoverAfterRewind();
     restoreSnapshot(this.boss, this.rewindPoint.boss);
     restoreSnapshot(this.projectiles, this.rewindPoint.projectiles);
     this.combat = new CombatSystem({ bossHittableMaxZ: BOSS.hittableMaxZ }); // "이미 맞았음" 기록도 비움
@@ -400,6 +414,7 @@ export class GameScene extends Phaser.Scene {
     this.slowMs = 0;
     this.inputReader.reset();
     this.cameras.main.flash(120, 255, 255, 255);
+    this.sceneSound('rewind');
   }
 
   private patternName(id: BossPatternId): string {
@@ -481,7 +496,12 @@ export class GameScene extends Phaser.Scene {
       this.bubble.setText(`HELPER ▸ ${HELPER_HINTS[e.patternId]}`);
       this.bubble.setVisible(true).setAlpha(1);
       this.bubbleMs = HINT_BUBBLE_MS;
+      this.sceneSound('hint');
     }
+  }
+
+  private sceneSound(s: SceneSound): void {
+    sfx.play(soundsFor({ scene: [s] }));
   }
 
   private updateBubble(dt: number): void {
@@ -498,7 +518,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHelp(): void {
-    this.helpText.setText(`ESC 일시정지 · R 재시작\nM 모드: ${MODE_LABEL[session.mode]} · K 기록 초기화`);
+    this.helpText.setText(
+      `ESC 일시정지 · R 재시작 · N 효과음 ${sfx.muted ? '끔' : '켬'}\nM 모드: ${MODE_LABEL[session.mode]} · K 기록 초기화`,
+    );
   }
 
   // ───────────────────────── 개발용 상태 표시 ─────────────────────────

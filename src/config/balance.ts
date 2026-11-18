@@ -41,16 +41,36 @@ export interface AttackHitConfig {
 export interface PlayerConfig {
   radius: number;
   moveSpeed: number;
+  /** 멈춤 → 최고 속도까지 걸리는 시간 (짧은 가속: 딱딱하지 않게) */
+  moveAccelMs: number;
+  /** 최고 속도 → 멈춤까지 걸리는 시간 */
+  moveDecelMs: number;
   maxHp: number;
+  /** 키 (높이 판정용: 점프로 낮은 공격 넘기) */
+  height?: number;
+  /** 점프: 처음 위로 속도(px/s), 중력(px/s²). 최고 높이 = velocity² / (2·gravity) */
+  jump?: { velocity: number; gravity: number };
+  /** 회복약: 개수, 회복량, 마시는 시간 (마시는 동안 못 움직이고 맞으면 끊김) */
+  potion?: { count: number; heal: number; drinkMs: number };
   maxStamina: number;
   staminaRegenPerSec: number;
   /** 스태미나를 쓴 뒤 회복이 시작되기까지의 지연 */
   staminaRegenDelayMs: number;
+  /**
+   * 구르기 (코드에서는 예전 이름 dash를 그대로 쓴다).
+   *   0 ─ invulnStartMs ─ (무적 invulnMs) ─ … durationMs(이동 끝) ─ recoveryMs(끝 경직) ─ 끝
+   * 이동은 처음에 빠르고 끝에서 느려진다. 끝 경직 동안은 아무것도 못 한다 (구르기 공격만 예외).
+   */
   dash: {
     distance: number;
+    /** 이동하는 시간 */
     durationMs: number;
-    /** 대시 시작부터 무적인 시간 (durationMs 이하) */
+    /** 무적이 시작되는 시각 */
+    invulnStartMs: number;
+    /** 무적 시간 */
     invulnMs: number;
+    /** 이동이 끝난 뒤의 경직 (커밋) */
+    recoveryMs: number;
     staminaCost: number;
   };
   /** 콤보 순서대로 1타, 2타, 3타 */
@@ -93,14 +113,21 @@ export interface PlayerConfig {
 export const PLAYER: PlayerConfig = {
   radius: 12,
   moveSpeed: 220,
+  moveAccelMs: 90,
+  moveDecelMs: 70,
   maxHp: 100,
+  height: 60,
+  jump: { velocity: 430, gravity: 1450 },
+  potion: { count: 3, heal: 45, drinkMs: 700 },
   maxStamina: 100,
   staminaRegenPerSec: 20,
   staminaRegenDelayMs: 500,
   dash: {
-    distance: 98,
-    durationMs: 150,
-    invulnMs: 140,
+    distance: 120,
+    durationMs: 400,
+    invulnStartMs: 20,
+    invulnMs: 300,
+    recoveryMs: 150,
     staminaCost: 25,
   },
   attackHits: [

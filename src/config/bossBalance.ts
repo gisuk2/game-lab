@@ -5,7 +5,9 @@
 
 export type BossPatternId =
   | 'sweep' | 'thrust' | 'spin' | 'combo' | 'slam'
-  | 'shot' | 'pursuit' | 'wave' | 'delayedSlam' | 'grab' | 'charge';
+  | 'shot' | 'pursuit' | 'wave' | 'delayedSlam' | 'grab' | 'charge'
+  // 시점 전환 실험판 (src/config/dimensionPatterns.ts)
+  | 'bladeWall' | 'curtain';
 
 /**
  * 패턴 카테고리 (docs/design/boss-patterns.md §0)
@@ -55,12 +57,21 @@ export interface AttackStep {
    * 이 타만 판정 모양을 바꿈. 'dashRect' = 예고를 시작한 자리에서 조준 방향으로 뻗는 직사각형
    * (몸통으로 돌파하는 돌진: 지나가는 길 전체가 판정)
    */
-  shape?: { kind: 'dashRect'; length: number; width: number };
+  shape?: { kind: 'dashRect'; length: number; width: number } | { kind: 'wall'; width: number };
   /**
    * 원거리 타: 판정이 켜지는 순간 날아가는 물체를 하나 쏜다 (근접 판정 없음).
    * 예고는 조준선 (발사 방향의 긴 직사각형). bullet = 탄 / wave = 땅을 타는 충격파
    */
-  fire?: { kind: 'bullet' | 'wave'; speed: number; radius: number };
+  fire?: {
+    kind: 'bullet' | 'wave';
+    speed: number;
+    radius: number;
+    /** 탄 높이 (없으면 30 = 가슴). 낮으면 점프로, 높으면 서 있으면 지나감 */
+    z?: number;
+    /** 한 번에 쏘는 개수 (부채꼴로 퍼짐) */
+    count?: number;
+    spreadDeg?: number;
+  };
 }
 
 interface PatternBase {
@@ -85,6 +96,12 @@ interface PatternBase {
   maxDistance: number;
   /** 후보 중 뽑힐 상대적 확률 */
   weight: number;
+  /** 높이 구간 [bottom, top]. 없으면 바닥부터 끝까지 (점프로 못 넘음). 낮게 쓸기 = { bottom: 0, top: 22 } */
+  height?: { bottom: number; top: number };
+  /** 시점 전환 실험판: 예고가 시작될 때 이 시점으로 강제 전환하고 패턴이 끝날 때까지 잠금 */
+  forceView?: '2d' | '3d';
+  /** 시점 전환 실험판: 플레이어가 이 시점을 선호하면(또는 지금 이 시점이면) 뽑힐 확률 배율 */
+  viewBias?: { '2d'?: number; '3d'?: number };
 }
 
 /** 보스 앞쪽 부채꼴 */

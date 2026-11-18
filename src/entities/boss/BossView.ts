@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import type { Vec2 } from '../../utils/geometry';
 import { dashPolyline, expandShape, shapeOutline } from '../../utils/shapes';
 import type { BossModel } from './BossModel';
+import { WEAPON_LEN, weaponPose } from './weaponPose';
 import type { WeaponId } from '../../config/bossBalance';
 
 const BLACK = 0x000000;
@@ -24,8 +25,6 @@ const DASH = 10;
 const GAP = 7;
 /** 패링 불가 공격의 바깥쪽 두 번째 점선 간격 */
 const DOUBLE_LINE_OFFSET = 6;
-/** 무기 기준 길이 (자세 계산용. 실제 길이는 무기마다 다름) */
-const WEAPON_LEN = 58;
 
 interface WeaponPose {
   /** 몸 중심 (높이 반영) */
@@ -132,59 +131,10 @@ export class BossView {
    */
   private drawWeapon(m: BossModel): void {
     if (m.isDead) return;
-    const r = this.radius;
     const cx = m.x;
     const cy = m.y - m.z;
     const atk = m.attack;
-    let wa = m.facing + 1.1;
-    let hand = r * 0.75;
-    let len = WEAPON_LEN;
-    let glow = false;
-
-    if (m.state === 'flinch') wa = m.facing + 2.3;
-    if (m.isStaggered) wa = m.facing + Math.PI * 0.8;
-
-    if (atk) {
-      const p = atk.pattern;
-      const t = atk.phaseProgress;
-      const e = 1 - (1 - t) * (1 - t); // 처음엔 빠르게, 끝에서 천천히 (준비 동작이 점점 무거워짐)
-      glow = !atk.parryable && atk.phase === 'telegraph';
-      const aim = atk.shape.kind === 'sector' || atk.shape.kind === 'rect' ? atk.shape.angle : m.facing;
-
-      const isDashStep = p.shape === 'sector' && atk.shape.kind === 'rect';
-      if (atk.fire === 'wave') {
-        // 지면 파동: 해머를 치켜들었다가(준비) 앞으로 내리침
-        if (atk.phase === 'telegraph') { wa = -Math.PI / 2 + (aim + Math.PI / 2) * 0.15 * e; hand = r * 0.6; }
-        else { wa = aim; len = WEAPON_LEN + 10; }
-      } else if (atk.fire === 'bullet') {
-        // 사격: 총을 조준 방향으로 들고, 쏠 때 살짝 반동
-        wa = aim;
-        if (atk.phase === 'active') hand = r * 0.75 - 8;
-      } else if (isDashStep) {
-        // 쌍검 마무리 돌진: 두 날을 앞으로 모아 당겼다가 몸째 돌파
-        wa = aim;
-        if (atk.phase === 'telegraph') hand = r * 0.75 - 20 * e;
-      } else if (p.shape === 'sector') {
-        const side = atk.step % 2 === 0 ? 1 : -1;
-        const half = (p.arcDeg * Math.PI) / 360;
-        const back = half + 0.5;
-        if (atk.phase === 'telegraph') wa = aim + side * (half * 0.6 + 0.5 * e + 0.2);
-        else if (atk.phase === 'active') wa = aim + side * back - side * (back + half) * t;
-        else wa = aim - side * half;
-      } else if (p.shape === 'rect') {
-        wa = aim;
-        if (atk.phase === 'telegraph') hand = r * 0.75 - 30 * e;
-        else if (atk.phase === 'active') { hand = r * 0.75 + 25; len = WEAPON_LEN + 25; }
-      } else if (p.anchor === 'self') {
-        if (atk.phase === 'telegraph') wa = m.facing + 1.1 + 1.6 * e;
-        else if (atk.phase === 'active') wa = m.facing + 2.7 + Math.PI * 2 * t;
-        else wa = m.facing + 2.7;
-      } else {
-        // 점프 내려찍기: 공중에서는 치켜들고(화면 위쪽), 착지하면 앞으로 내려놓음
-        if (atk.phase === 'telegraph') { wa = -Math.PI / 2; hand = r * 0.6; }
-        else { wa = m.facing; len = WEAPON_LEN + 10; }
-      }
-    }
+    const { wa, hand, len, glow, axis } = weaponPose(m, this.radius);
 
     const color = glow ? RED : m.isStaggered ? REST_GREY : BLACK;
     const pose: WeaponPose = { cx, cy, wa, hand, len, color, glow, alpha: 1, jitter: 0 };
@@ -200,7 +150,6 @@ export class BossView {
     }
     // 쌍검은 반대쪽 손에도 한 자루 (조준 축에 대칭)
     if (m.weapon === 'twinblades') {
-      const axis = atk && (atk.shape.kind === 'sector' || atk.shape.kind === 'rect') ? atk.shape.angle : m.facing;
       this.drawWeaponShape('twinblades', { ...pose, wa: 2 * axis - wa, alpha: atk?.phase === 'active' ? 0.6 : 1 });
     }
     this.drawWeaponShape(m.weapon, pose);

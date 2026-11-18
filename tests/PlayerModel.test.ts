@@ -39,8 +39,47 @@ describe('이동', () => {
 
     const straightDist = Math.hypot(straight.x - 5000, straight.y - 5000);
     const diagonalDist = Math.hypot(diagonal.x - 5000, diagonal.y - 5000);
-    expect(straightDist).toBeCloseTo(PLAYER.moveSpeed, 5);
-    expect(diagonalDist).toBeCloseTo(PLAYER.moveSpeed, 5);
+    // 처음 가속 구간만큼 덜 감 (가속 시간 동안 최고 속도로 간 거리보다는 적게 손해)
+    expect(straightDist).toBeLessThan(PLAYER.moveSpeed);
+    expect(straightDist).toBeGreaterThan(PLAYER.moveSpeed * (1 - PLAYER.moveAccelMs / 1000));
+    expect(diagonalDist).toBeCloseTo(straightDist, 5);
+  });
+
+  it('짧게 가속하고, 손을 떼면 짧게 미끄러지다 멈춘다', () => {
+    const p = newPlayer();
+    hold(p, { moveX: 1 }, PLAYER.moveAccelMs / 2);
+    const early = p.x - 5000;
+    expect(early).toBeLessThan((PLAYER.moveSpeed * PLAYER.moveAccelMs) / 2 / 1000); // 처음엔 최고 속도보다 느림
+    hold(p, { moveX: 1 }, 500);
+    const atStop = p.x;
+    hold(p, {}, PLAYER.moveDecelMs + 20);
+    expect(p.x).toBeGreaterThan(atStop); // 조금 미끄러짐
+    expect(p.x - atStop).toBeLessThan(PLAYER.moveSpeed * (PLAYER.moveDecelMs / 1000)); // 최고 속도로 그 시간만큼보다 짧게
+    const stopped = p.x;
+    hold(p, {}, 100);
+    expect(p.x).toBe(stopped);
+    expect(p.state).toBe('idle');
+  });
+
+  it('가속은 moveAccelMs, 감속은 moveDecelMs에 걸쳐 일정하게 변한다', () => {
+    /** 한 스텝 동안 움직인 거리로 지금 속도(px/s)를 잰다 */
+    const speedOf = (p: PlayerModel, input: Partial<PlayerInput>) => {
+      const x = p.x;
+      hold(p, input, STEP_MS);
+      return ((p.x - x) / STEP_MS) * 1000;
+    };
+    const p = newPlayer();
+    hold(p, { moveX: 1 }, PLAYER.moveAccelMs / 2 - STEP_MS);
+    // 가속 절반 지점 → 최고 속도의 절반쯤
+    const a = speedOf(p, { moveX: 1 }) / PLAYER.moveSpeed;
+    expect(a).toBeGreaterThan(0.4); // (스텝 단위라 정확히 0.5는 아님)
+    expect(a).toBeLessThan(0.6);
+    hold(p, { moveX: 1 }, 300);
+    hold(p, {}, PLAYER.moveDecelMs / 2 - STEP_MS);
+    // 감속 절반 지점 → 최고 속도의 절반쯤
+    const d = speedOf(p, {}) / PLAYER.moveSpeed;
+    expect(d).toBeGreaterThan(0.4);
+    expect(d).toBeLessThan(0.6);
   });
 
   it('화면 밖으로 나가지 않는다', () => {
@@ -52,23 +91,38 @@ describe('이동', () => {
 });
 
 describe('대시', () => {
-  it('스태미나를 소모하고 정확히 정해진 거리만큼 이동한 뒤 idle로 돌아온다', () => {
+  it('스태미나를 소모하고 정확히 정해진 거리만큼 구른 뒤, 끝 경직이 지나야 idle로 돌아온다', () => {
     const p = newPlayer();
     press(p, { dash: true, moveX: 1 });
     expect(p.state).toBe('dash');
     expect(p.stamina).toBe(PLAYER.maxStamina - PLAYER.dash.staminaCost);
 
     wait(p, PLAYER.dash.durationMs + 20);
+    expect(p.x - 5000).toBeCloseTo(PLAYER.dash.distance, 5); // 이동은 끝났지만
+    expect(p.state).toBe('dash'); // 끝 경직 중
+    press(p, { attackHeld: true, moveX: 1 });
+    expect(p.state).toBe('dash'); // 경직 중엔 아무것도 못 함
+
+    wait(p, PLAYER.dash.recoveryMs);
     expect(p.state).toBe('idle');
-    expect(p.x - 5000).toBeCloseTo(PLAYER.dash.distance, 5);
   });
 
-  it('시작 후 invulnMs 동안만 무적이다', () => {
+  it('구르기는 처음에 빠르고 끝에서 느리다 (절반 시간에 절반보다 많이 이동)', () => {
     const p = newPlayer();
     press(p, { dash: true, moveX: 1 });
-    wait(p, 50);
+    wait(p, PLAYER.dash.durationMs / 2 - 10);
+    expect(p.x - 5000).toBeGreaterThan(PLAYER.dash.distance * 0.6);
+  });
+
+  it('무적 구간: 시작 직후 잠깐은 무적이 아니고, invulnStartMs부터 invulnMs 동안만 무적이다', () => {
+    const p = newPlayer();
+    press(p, { dash: true, moveX: 1 }); // 구르기 시작 (구르기 안의 시간 0)
+    expect(p.isInvulnerable).toBe(false);
+    wait(p, 50); // 50
     expect(p.isInvulnerable).toBe(true);
-    wait(p, PLAYER.dash.invulnMs);
+    wait(p, PLAYER.dash.invulnStartMs + PLAYER.dash.invulnMs - 60); // 무적 끝 10ms 전
+    expect(p.isInvulnerable).toBe(true);
+    wait(p, 10); // 무적 끝
     expect(p.isInvulnerable).toBe(false);
   });
 
@@ -387,13 +441,13 @@ describe('대시 찌르기', () => {
   it('대시가 끝난 직후 입력 창 안에 클릭해도 나가고, 창이 지나면 평범한 1타가 나간다', () => {
     const inWindow = newPlayer();
     press(inWindow, { dash: true, moveX: 1 });
-    wait(inWindow, PLAYER.dash.durationMs + D.inputWindowMs - STEP_MS * 2);
+    wait(inWindow, PLAYER.dash.durationMs + PLAYER.dash.recoveryMs + D.inputWindowMs - STEP_MS * 2);
     press(inWindow, { attack: true });
     expect(inWindow.attack?.kind).toBe('dash');
 
     const late = newPlayer();
     press(late, { dash: true, moveX: 1 });
-    wait(late, PLAYER.dash.durationMs + D.inputWindowMs + STEP_MS * 3);
+    wait(late, PLAYER.dash.durationMs + PLAYER.dash.recoveryMs + D.inputWindowMs + STEP_MS * 3);
     press(late, { attack: true });
     expect(late.attack?.kind).toBe('combo');
     expect(late.attack?.comboIndex).toBe(0);

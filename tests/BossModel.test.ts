@@ -468,7 +468,8 @@ describe('쌍검 마무리 돌진', () => {
     const shape = boss.attack!.shape;
     expect(shape.kind).toBe('rect');
     expect(shape.kind === 'rect' && shape.x).toBeCloseTo(startX, 5);
-    expect(shape.kind === 'rect' && shape.length).toBe(combo.steps[last].shape!.length);
+    const override = combo.steps[last].shape!;
+    expect(shape.kind === 'rect' && shape.length).toBe(override.kind === 'dashRect' ? override.length : -1);
 
     runUntil(boss, target, () => boss.attack?.phase === 'recovery' && boss.attack.step === last);
     expect(boss.x - startX).toBeCloseTo(combo.steps[last].lungeDistance, 0);

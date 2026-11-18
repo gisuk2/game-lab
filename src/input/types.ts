@@ -15,6 +15,10 @@ export interface PlayerInput {
   attackHeld: boolean;
   parry: boolean;
   dash: boolean;
+  /** 점프 (눌린 순간). 2D 시점 전환 실험판에서 추가 */
+  jump?: boolean;
+  /** 회복약 (눌린 순간) */
+  heal?: boolean;
 }
 
 export const NO_INPUT: Readonly<PlayerInput> = Object.freeze({

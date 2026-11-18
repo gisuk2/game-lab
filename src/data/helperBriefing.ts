@@ -30,6 +30,8 @@ export const HELPER_HINTS: Record<BossPatternId, string> = {
   delayedSlam: '공중에서 멈췄어요! 떨어질 때 대시!',
   grab: '잡으러 와요! 옆으로!',
   charge: '돌진! 옆으로 비켜요!',
+  bladeWall: '칼날 벽! 평면에선 못 피해요, 시점을 바꿔 옆으로!',
+  curtain: '탄막! 낮은 건 점프, 높은 건 그대로!',
 };
 
 /** 그림 카드의 대응법 표시 (짧은 꼬리표). 노이즈 처리 단위가 된다 */
@@ -45,6 +47,8 @@ export const HELPER_ANSWERS: Record<BossPatternId, readonly string[]> = {
   delayedSlam: ['떨어질 때 대시'],
   grab: ['옆으로'],
   charge: ['옆으로'],
+  bladeWall: ['3D로', '옆으로'],
+  curtain: ['낮으면 점프', '높으면 그대로'],
 };
 
 /** 그림 카드에 쓰는 무기 순서 (카드 6장) */

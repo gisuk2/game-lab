@@ -30,6 +30,8 @@ export type BossEvent =
       radius: number;
       damage: number;
       parryable: boolean;
+      /** 탄 높이 (없으면 기본) */
+      z?: number;
     }
   | { type: 'watchStart'; mode: WatchMode; durationMs: number };
 
@@ -67,6 +69,7 @@ export function choosePattern(
   distance: number,
   lastId: BossPatternId | null,
   rng: Rng,
+  view: '2d' | '3d' | null = null,
 ): BossPatternConfig {
   let candidates = cfg.patterns.filter((p) => distance >= p.minDistance);
   if (candidates.length === 0) candidates = cfg.patterns;
@@ -75,8 +78,10 @@ export function choosePattern(
     if (withoutLast.length > 0) candidates = withoutLast;
   }
 
+  // 시점 학습: 플레이어가 머무는 시점에서 불리한 패턴을 더 고름
+  const viewMul = (p: BossPatternConfig): number => (view && p.viewBias?.[view]) ?? 1;
   const weightOf = (p: BossPatternConfig): number =>
-    distance <= p.maxDistance ? p.weight : p.weight * cfg.outOfRangeWeight;
+    (distance <= p.maxDistance ? p.weight : p.weight * cfg.outOfRangeWeight) * viewMul(p);
   const total = candidates.reduce((sum, p) => sum + weightOf(p), 0);
 
   let r = rng() * total;
@@ -143,6 +148,13 @@ export class BossModel {
   /** 판정이 켜질 때의 위치 (돌진 출발점) */
   private lungeFrom: Vec2 = { x: 0, y: 0 };
   private landing: Vec2 = { x: 0, y: 0 };
+  /** 칼날 벽의 깊이 (조준 고정 전까지 플레이어 깊이를 따라감) */
+  private wallY = 0;
+  /**
+   * 시점 학습 (Game이 매 프레임 넣어 줌): 플레이어가 선호하는 시점, 없으면 지금 시점.
+   * 패턴을 고를 때 viewBias 배율로 쓴다.
+   */
+  viewHint: '2d' | '3d' | null = null;
 
   private events: BossEvent[] = [];
 
@@ -172,6 +184,11 @@ export class BossModel {
 
   get state(): BossState {
     return this._state;
+  }
+
+  /** 지금 상태에 들어온 뒤 지난 시간 (ms, 몸 자세용) */
+  get stateMs(): number {
+    return this.stateTimeMs;
   }
 
   get isResting(): boolean {
@@ -338,7 +355,7 @@ export class BossModel {
 
     // 쫓아가도 사거리에 못 붙으면 지금 거리 기준으로 다시 고른다
     if (!this.pattern || this.stateTimeMs >= this.cfg.chaseTimeoutMs) {
-      this.pattern = choosePattern(this.cfg, dist, this.lastPatternId, this.rng);
+      this.pattern = choosePattern(this.cfg, dist, this.lastPatternId, this.rng, this.viewHint);
       if (this.stateTimeMs >= this.cfg.chaseTimeoutMs) this.stateTimeMs = this.cfg.minIdleMs;
     }
 
@@ -377,6 +394,7 @@ export class BossModel {
     this._attackSerial += 1;
     this.locked = false;
     if (p.shape === 'circle' && p.anchor === 'target') this.landing = this.clampToArena(target);
+    if (this.step.shape?.kind === 'wall') this.wallY = target.y;
     this.updateStrikeOrigin();
     this.enter('telegraph');
     this.events.push({ type: 'telegraphStart', patternId: p.id, step: i });
@@ -399,6 +417,7 @@ export class BossModel {
         this.aimAngle = wrapAngle(this.aimAngle + clamp(wrapAngle(desired - this.aimAngle), -step, step));
         this.facing = this.aimAngle;
         if (p.shape === 'circle' && p.anchor === 'target') this.landing = this.clampToArena(target);
+        if (this.step.shape?.kind === 'wall') this.wallY = target.y;
         this.updateStrikeOrigin();
       } else {
         this.lockAim();
@@ -436,19 +455,25 @@ export class BossModel {
       this.enter('active');
       this.events.push({ type: 'attackActive', patternId: p.id, step: this.stepIndex });
       if (s.fire) {
-        // 몸 앞에서 발사
-        this.events.push({
-          type: 'fire',
-          patternId: p.id,
-          x: this.x + Math.cos(this.aimAngle) * this.cfg.radius,
-          y: this.y + Math.sin(this.aimAngle) * this.cfg.radius,
-          angle: this.aimAngle,
-          kind: s.fire.kind,
-          speed: s.fire.speed,
-          radius: s.fire.radius,
-          damage: p.damage,
-          parryable: isParryable(p, s),
-        });
+        // 몸 앞에서 발사 (count개면 spreadDeg만큼 부채꼴로 퍼짐)
+        const n = s.fire.count ?? 1;
+        const spread = degToRad(s.fire.spreadDeg ?? 0);
+        for (let k = 0; k < n; k++) {
+          const angle = this.aimAngle + (n > 1 ? (k / (n - 1) - 0.5) * spread : 0);
+          this.events.push({
+            type: 'fire',
+            patternId: p.id,
+            x: this.x + Math.cos(angle) * this.cfg.radius,
+            y: this.y + Math.sin(angle) * this.cfg.radius,
+            angle,
+            kind: s.fire.kind,
+            speed: s.fire.speed,
+            radius: s.fire.radius,
+            damage: p.damage,
+            parryable: isParryable(p, s),
+            z: s.fire.z,
+          });
+        }
       }
     }
   }
@@ -576,6 +601,10 @@ export class BossModel {
       return { kind: 'rect', x: this.x, y: this.y, angle: this.aimAngle, length: reach, width: Math.max(6, fire.radius * 2) };
     }
     const override = this.step.shape;
+    if (override?.kind === 'wall') {
+      // 칼날 벽: 경기장 좌우 전체를 덮지만 깊이로는 얇음 (2D에서는 못 피함, 3D에서는 옆으로 비킴)
+      return { kind: 'rect', x: -100, y: this.wallY, angle: 0, length: this.bounds.width + 200, width: override.width };
+    }
     if (override?.kind === 'dashRect') {
       // 예고를 시작한 자리에서 뻗는 직사각형 (돌진하며 지나가는 길 전체)
       return { kind: 'rect', x: this.origin.x, y: this.origin.y, angle: this.aimAngle, length: override.length, width: override.width };

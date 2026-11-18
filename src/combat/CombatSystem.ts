@@ -1,5 +1,9 @@
 import type { BossPatternId } from '../config/bossBalance';
-import { circleHitsShape, type AttackShape } from '../utils/shapes';
+import type { AttackShape } from '../utils/shapes';
+import { bodyHitsShape, FULL_HEIGHT, type HeightBand, type View } from '../dimension/projection';
+
+/** 보스 몸의 높이 (판정용, 플레이어 공격이 닿는 높이) */
+const BOSS_BODY_HEIGHT = 260;
 
 /**
  * 전투 판정 (순수 로직, Phaser 의존 없음).
@@ -13,6 +17,10 @@ import { circleHitsShape, type AttackShape } from '../utils/shapes';
 export interface CombatPlayer {
   x: number;
   y: number;
+  /** 발 높이 (점프). 없으면 0 */
+  readonly z?: number;
+  /** 키. 없으면 60 */
+  readonly height?: number;
   readonly radius: number;
   readonly isDead: boolean;
   readonly isInvulnerable: boolean;
@@ -38,7 +46,7 @@ export interface CombatBoss {
   readonly attackSerial: number;
   readonly attack: {
     phase: 'telegraph' | 'active' | 'recovery';
-    pattern: { id: BossPatternId; damage: number };
+    pattern: { id: BossPatternId; damage: number; height?: HeightBand };
     parryable: boolean;
     /** 근접 판정이 있는가 (원거리 타는 false) */
     melee: boolean;
@@ -72,21 +80,26 @@ export class CombatSystem {
 
   constructor(private readonly rules: CombatRules) {}
 
-  resolve(player: CombatPlayer, boss: CombatBoss): CombatEvent[] {
+  /** @param view 시점 (2D면 깊이를 무시하고 좌우·높이만 판정). 기본 3D = 지금까지와 같음 */
+  resolve(player: CombatPlayer, boss: CombatBoss, view: View = '3d'): CombatEvent[] {
     const events: CombatEvent[] = [];
     if (player.isDead || boss.isDead) return events;
 
+    this.view = view;
     this.resolvePlayerAttack(player, boss, events);
     if (!boss.isDead) this.resolveBossAttack(player, boss, events);
     return events;
   }
+
+  private view: View = '3d';
 
   private resolvePlayerAttack(player: CombatPlayer, boss: CombatBoss, events: CombatEvent[]): void {
     const atk = player.attack;
     if (!atk || atk.phase !== 'active' || atk.serial === this.lastPlayerSwing) return;
     if (boss.z > this.rules.bossHittableMaxZ) return; // 점프 중인 보스는 맞지 않음
 
-    if (!circleHitsShape(boss.x, boss.y, boss.radius, atk.shape)) return;
+    const bossBody = { x: boss.x, y: boss.y, z: boss.z, radius: boss.radius, height: BOSS_BODY_HEIGHT };
+    if (!bodyHitsShape(this.view, bossBody, atk.shape)) return;
 
     this.lastPlayerSwing = atk.serial;
     const result = boss.applyHit(atk.damage, atk.postureMultiplier);
@@ -105,7 +118,8 @@ export class CombatSystem {
   private resolveBossAttack(player: CombatPlayer, boss: CombatBoss, events: CombatEvent[]): void {
     const atk = boss.attack;
     if (!atk || !atk.melee || atk.phase !== 'active' || boss.attackSerial === this.lastBossAttackResolved) return;
-    if (!circleHitsShape(player.x, player.y, player.radius, atk.shape)) return;
+    const body = { x: player.x, y: player.y, z: player.z ?? 0, radius: player.radius, height: player.height ?? 60 };
+    if (!bodyHitsShape(this.view, body, atk.shape, atk.pattern.height ?? FULL_HEIGHT)) return;
 
     const id = atk.pattern.id;
 

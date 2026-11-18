@@ -220,3 +220,33 @@ describe('헬퍼 안내', () => {
     }
   });
 });
+
+describe('되감기 뒤 정리 (버그: 3타 충전 중 저장되면 무한 사망)', () => {
+  const bounds = { width: 1000, height: 1000 };
+
+  it('취소할 수 없는 3타 충전 중에 저장됐어도, 되감은 뒤에는 바로 구를 수 있다', () => {
+    const p = new PlayerModel(500, 500, bounds);
+    for (let i = 0; i < 500 && p.attack?.comboIndex !== 2; i++) p.update({ ...NO_INPUT, attackHeld: true }, 10);
+    expect(p.attack?.comboIndex).toBe(2);
+    expect(p.attack?.phase).toBe('startup');
+    p.stamina = 0;
+    const snap = takeSnapshot(p, ['cfg', 'bounds']); // 3타 충전 중 + 스태미나 0 상태로 저장됨
+    p.applyHit(10, 400, 500);
+
+    restoreSnapshot(p, snap);
+    p.recoverAfterRewind();
+    expect(p.state).toBe('idle');
+    expect(p.attack).toBeNull();
+    p.update({ ...NO_INPUT, dash: true, moveX: 1 }, 10);
+    expect(p.state).toBe('dash');
+  });
+
+  it('위치는 저장한 그대로', () => {
+    const p = new PlayerModel(500, 500, bounds);
+    const snap = takeSnapshot(p, ['cfg', 'bounds']);
+    p.update({ ...NO_INPUT, moveX: 1 }, 200);
+    restoreSnapshot(p, snap);
+    p.recoverAfterRewind();
+    expect(p.x).toBe(500);
+  });
+});

@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 // GitHub Pages는 https://<사용자>.github.io/<저장소 이름>/ 경로에서 서비스된다.
@@ -8,4 +9,14 @@ const repoName = process.env.GITHUB_REPOSITORY?.split('/')[1];
 
 export default defineConfig({
   base: repoName ? `/${repoName}/` : '/',
+  build: {
+    // 페이지 세 개: 2D 본편(index.html) + 3D 시험판(3d.html) + 영지 경영 실험판(estate.html). Vite 8부터 rollupOptions → rolldownOptions
+    rolldownOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        three: fileURLToPath(new URL('./3d.html', import.meta.url)),
+        estate: fileURLToPath(new URL('./estate.html', import.meta.url)),
+      },
+    },
+  },
 });

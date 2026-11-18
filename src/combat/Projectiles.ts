@@ -1,6 +1,7 @@
 import type { BossPatternId } from '../config/bossBalance';
 import type { Bounds } from '../entities/player/PlayerModel';
 import type { CombatBoss, CombatEvent, CombatPlayer } from './CombatSystem';
+import type { View } from '../dimension/projection';
 
 /**
  * 날아가는 물체 (탄·충격파). 순수 로직.
@@ -19,6 +20,8 @@ export interface Projectile {
   kind: ProjectileKind;
   x: number;
   y: number;
+  /** 높이 (탄 중심). 2D 시점에서 점프로 넘거나 아래로 지나가게 하는 데 씀 */
+  z: number;
   vx: number;
   vy: number;
   radius: number;
@@ -41,6 +44,8 @@ export interface ProjectileSpawn {
   damage: number;
   parryable: boolean;
   patternId: BossPatternId;
+  /** 높이 (없으면 30 = 플레이어 가슴) */
+  z?: number;
 }
 
 export interface ProjectileRules {
@@ -61,6 +66,8 @@ export const PROJECTILE_RULES: ProjectileRules = {
 export class ProjectileSystem {
   projectiles: Projectile[] = [];
   private nextId = 1;
+  /** 시점 (2D면 깊이를 무시하고 좌우·높이만 판정). Game이 매 프레임 맞춰 둠 */
+  view: View = '3d';
 
   constructor(
     private readonly bounds: Bounds,
@@ -73,6 +80,7 @@ export class ProjectileSystem {
       kind: s.kind,
       x: s.x,
       y: s.y,
+      z: s.z ?? 30,
       vx: Math.cos(s.angle) * s.speed,
       vy: Math.sin(s.angle) * s.speed,
       radius: s.radius,
@@ -109,7 +117,7 @@ export class ProjectileSystem {
 
   /** @returns 물체가 사라졌으면 true */
   private hitPlayer(p: Projectile, player: CombatPlayer, boss: CombatBoss, events: CombatEvent[]): boolean {
-    if (player.isDead || !overlaps(p, player.x, player.y, player.radius)) return false;
+    if (player.isDead || !this.overlaps(p, player.x, player.y, player.radius, player.z ?? 0, player.height ?? 60)) return false;
 
     if (player.isInvulnerable) {
       if (!p.dodged) {
@@ -135,7 +143,7 @@ export class ProjectileSystem {
   }
 
   private hitBoss(p: Projectile, boss: CombatBoss, events: CombatEvent[]): boolean {
-    if (boss.isDead || boss.z > this.rules.bossHittableMaxZ || !overlaps(p, boss.x, boss.y, boss.radius)) return false;
+    if (boss.isDead || boss.z > this.rules.bossHittableMaxZ || !this.overlaps(p, boss.x, boss.y, boss.radius, boss.z, 260)) return false;
     const result = boss.applyHit(p.damage, this.rules.reflectPostureMultiplier);
     events.push({ type: 'playerHitBoss', damage: result.dealt });
     if (result.staggerStarted) events.push({ type: 'bossStaggered' });
@@ -143,14 +151,17 @@ export class ProjectileSystem {
     return true;
   }
 
+  /** 탄이 몸(원기둥)과 겹치는가. 2D 시점에서는 깊이(y)를 무시 */
+  private overlaps(p: Projectile, x: number, y: number, r: number, z: number, height: number): boolean {
+    if (p.z + p.radius < z || p.z - p.radius > z + height) return false;
+    const dx = p.x - x;
+    if (this.view === '2d') return Math.abs(dx) <= p.radius + r;
+    const dy = p.y - y;
+    return dx * dx + dy * dy <= (p.radius + r) * (p.radius + r);
+  }
+
   private isOutside(p: Projectile): boolean {
     const m = p.radius;
     return p.x < -m || p.y < -m || p.x > this.bounds.width + m || p.y > this.bounds.height + m;
   }
 }
-
-const overlaps = (p: Projectile, x: number, y: number, r: number): boolean => {
-  const dx = p.x - x;
-  const dy = p.y - y;
-  return dx * dx + dy * dy <= (p.radius + r) * (p.radius + r);
-};

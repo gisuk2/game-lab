@@ -6,8 +6,8 @@
 | 항목 | 내용 |
 |---|---|
 | 상태 | M0 완료 · M1 재미 검증 진행 중 |
-| 플레이 | https://gisuk2.github.io/read-me-game/ |
-| 기술 | TypeScript · Phaser · Vite · Vitest · GitHub Actions / 분석: Python |
+| 플레이 | https://gisuk2.github.io/read-me-game/ · 3D 시험판: https://gisuk2.github.io/read-me-game/3d.html |
+| 기술 | TypeScript · Phaser · Three.js(3D 시험판) · Vite · Vitest · GitHub Actions / 분석: Python |
 
 ---
 

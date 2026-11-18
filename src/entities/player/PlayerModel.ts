@@ -4,7 +4,7 @@ import { clamp } from '../../utils/math';
 import { degToRad, normalize, type Vec2 } from '../../utils/geometry';
 import type { AttackShape } from '../../utils/shapes';
 
-export type PlayerState = 'idle' | 'move' | 'dash' | 'attack' | 'parry' | 'hit' | 'dead';
+export type PlayerState = 'idle' | 'move' | 'dash' | 'attack' | 'parry' | 'hit' | 'heal' | 'dead';
 export type AttackPhase = 'startup' | 'active' | 'recovery';
 /** combo = 1·2·3타 / dash = 대시 찌르기 */
 export type AttackKind = 'combo' | 'dash';
@@ -17,6 +17,10 @@ export type PlayerEvent =
   | { type: 'dash'; dirX: number; dirY: number; cancelledAttack: boolean }
   | { type: 'attackStart'; kind: AttackKind; comboIndex: number; angle: number }
   | { type: 'parryStart' }
+  | { type: 'jump' }
+  | { type: 'land' }
+  | { type: 'healStart' }
+  | { type: 'healed'; amount: number }
   | { type: 'staminaDenied'; action: 'dash' | 'attack' | 'parry' };
 
 export interface AttackInfo {
@@ -75,12 +79,20 @@ export class PlayerModel {
   facing = 0;
   hp: number;
   stamina: number;
+  /** 발 높이 (점프). 0 = 땅 */
+  z = 0;
+  /** 위로 속도 (px/s) */
+  private vz = 0;
+  /** 남은 회복약 */
+  potions: number;
 
   private _state: PlayerState = 'idle';
   private stateTimeMs = 0;
   private msSinceStaminaSpent = Number.POSITIVE_INFINITY;
 
   private dashStart: Vec2 = { x: 0, y: 0 };
+  /** 걷는 속도 (가속·감속용) */
+  private vel: Vec2 = { x: 0, y: 0 };
   private dashDir: Vec2 = { x: 1, y: 0 };
 
   private comboIndex = 0;
@@ -110,6 +122,17 @@ export class PlayerModel {
     this.y = y;
     this.hp = cfg.maxHp;
     this.stamina = cfg.maxStamina;
+    this.potions = cfg.potion?.count ?? 0;
+  }
+
+  /** 땅에 있는가 */
+  get grounded(): boolean {
+    return this.z <= 0 && this.vz <= 0;
+  }
+
+  /** 키 (높이 판정용) */
+  get height(): number {
+    return this.cfg.height ?? 60;
   }
 
   get state(): PlayerState {
@@ -124,14 +147,31 @@ export class PlayerModel {
     return this._state === 'dead';
   }
 
-  /** 대시 시작 후 invulnMs 동안 무적 */
+  /** 구르기 무적 구간 (invulnStartMs부터 invulnMs 동안) */
   get isInvulnerable(): boolean {
-    return this._state === 'dash' && this.stateTimeMs < this.cfg.dash.invulnMs;
+    const { invulnStartMs, invulnMs } = this.cfg.dash;
+    return this._state === 'dash' && this.stateTimeMs >= invulnStartMs && this.stateTimeMs < invulnStartMs + invulnMs;
   }
 
   /** 패링 판정이 켜져 있는가 */
   get isParryActive(): boolean {
     return this._state === 'parry' && this.stateTimeMs < this.cfg.parry.activeMs;
+  }
+
+  /** 지금 속도 / 최고 속도 (0~1, 걷기 모션 세기용) */
+  get moveRatio(): number {
+    return Math.min(1, Math.hypot(this.vel.x, this.vel.y) / this.cfg.moveSpeed);
+  }
+
+  /** 지금 상태에 들어온 뒤 지난 시간 (ms, 몸 자세용) */
+  get stateMs(): number {
+    return this.stateTimeMs;
+  }
+
+  /** 구르는 중이면 이동 진행률 0~1 (끝 경직 동안은 1), 아니면 null */
+  get dashProgress(): number | null {
+    if (this._state !== 'dash') return null;
+    return Math.min(1, this.stateTimeMs / this.cfg.dash.durationMs);
   }
 
   get dashDirection(): Vec2 {
@@ -196,8 +236,12 @@ export class PlayerModel {
       case 'parry':
         this.updateParry();
         break;
+      case 'heal':
+        this.updateHeal();
+        break;
     }
 
+    this.updateAir(dtMs);
     this.regenStamina(dtMs);
     return this.events;
   }
@@ -208,7 +252,20 @@ export class PlayerModel {
   private updateFree(input: PlayerInput, dtMs: number): void {
     this.facing = input.aimAngle;
 
-    if (input.dash) {
+    // 점프: 땅에서만. 공중에서도 좌우로 움직이고 공격할 수 있다 (구르기·회복약은 땅에서만)
+    if (input.jump && this.grounded && this.cfg.jump) {
+      this.vz = this.cfg.jump.velocity;
+      this.events.push({ type: 'jump' });
+    }
+
+    if (input.heal && this.grounded && this.potions > 0 && this.cfg.potion) {
+      this.potions -= 1;
+      this.enter('heal');
+      this.events.push({ type: 'healStart' });
+      return;
+    }
+
+    if (input.dash && this.grounded) {
       if (this.trySpend(this.cfg.dash.staminaCost)) {
         this.startDash(input, false);
         return;
@@ -240,10 +297,20 @@ export class PlayerModel {
       this.events.push({ type: 'staminaDenied', action: 'parry' });
     }
 
+    // 이동: 목표 속도로 짧게 가속·감속 (즉시 최고 속도·즉시 정지는 딱딱해 보임)
     const dir = normalize(input.moveX, input.moveY);
-    const step = this.cfg.moveSpeed * (dtMs / 1000);
-    this.setPosition(this.x + dir.x * step, this.y + dir.y * step);
-    this._state = dir.x !== 0 || dir.y !== 0 ? 'move' : 'idle';
+    const wanted = { x: dir.x * this.cfg.moveSpeed, y: dir.y * this.cfg.moveSpeed };
+    const moving = dir.x !== 0 || dir.y !== 0;
+    const rate = this.cfg.moveSpeed / Math.max(1, moving ? this.cfg.moveAccelMs : this.cfg.moveDecelMs);
+    const maxChange = rate * dtMs;
+    const dx = wanted.x - this.vel.x;
+    const dy = wanted.y - this.vel.y;
+    const diff = Math.hypot(dx, dy);
+    if (diff <= maxChange) this.vel = wanted;
+    else this.vel = { x: this.vel.x + (dx / diff) * maxChange, y: this.vel.y + (dy / diff) * maxChange };
+    const sec = dtMs / 1000;
+    this.setPosition(this.x + this.vel.x * sec, this.y + this.vel.y * sec);
+    this._state = moving || this.vel.x !== 0 || this.vel.y !== 0 ? 'move' : 'idle';
   }
 
   /** 대시 방향: 이동키 방향, 이동키가 없으면 조준 방향 */
@@ -255,6 +322,7 @@ export class PlayerModel {
         : { x: Math.cos(input.aimAngle), y: Math.sin(input.aimAngle) };
     this.dashStart = { x: this.x, y: this.y };
     this.dashAttackBuffered = false;
+    this.facing = Math.atan2(this.dashDir.y, this.dashDir.x); // 구르는 쪽을 바라봄
     this.enter('dash');
     this.events.push({ type: 'dash', dirX: this.dashDir.x, dirY: this.dashDir.y, cancelledAttack });
   }
@@ -265,19 +333,25 @@ export class PlayerModel {
       this.dashAttackBuffered = true;
       this.facing = input.aimAngle;
     }
-    const { distance, durationMs } = this.cfg.dash;
-    const progress = Math.min(this.stateTimeMs, durationMs) / durationMs;
+    const { distance, durationMs, recoveryMs } = this.cfg.dash;
+    const t = Math.min(this.stateTimeMs, durationMs) / durationMs;
+    const progress = 1 - (1 - t) * (1 - t); // 처음엔 빠르게, 끝에서 느리게 (구르는 느낌)
     this.setPosition(
       this.dashStart.x + this.dashDir.x * distance * progress,
       this.dashStart.y + this.dashDir.y * distance * progress,
     );
-    if (this.stateTimeMs >= durationMs) {
+    if (this.stateTimeMs < durationMs) return;
+
+    // 이동 끝: 미리 누른 공격이 있으면 끝 경직 없이 바로 구르기 공격
+    if (this.dashAttackBuffered) {
+      this.dashAttackBuffered = false;
       this.enter('idle');
       this.msSinceDashEnd = 0;
-      if (this.dashAttackBuffered) {
-        this.dashAttackBuffered = false;
-        this.tryStartDashAttack();
-      }
+      if (this.tryStartDashAttack()) return;
+    }
+    if (this.stateTimeMs >= durationMs + recoveryMs) {
+      this.enter('idle');
+      this.msSinceDashEnd = 0;
     }
   }
 
@@ -385,6 +459,21 @@ export class PlayerModel {
   }
 
   /** 보스 몸과 겹치지 않도록 밀어낼 때 사용 */
+  /**
+   * 되감기(빠른 부활) 뒤 정리: 위치·스태미나는 그대로 두고 동작은 "아무것도 안 하는 상태"로.
+   * 되감기 지점이 3타 충전처럼 취소할 수 없는 동작 중에 저장됐으면, 그대로 되돌리면 같은 공격에
+   * 무한히 다시 맞는다 (버그 수정). 스태미나는 최소한 구르기 한 번은 할 수 있게 채운다.
+   */
+  recoverAfterRewind(): void {
+    this.enter('idle');
+    this.attackBuffered = false;
+    this.dashAttackBuffered = false;
+    this.isDashAttack = false;
+    this.comboIndex = 0;
+    this.msSinceDashEnd = Number.POSITIVE_INFINITY;
+    this.stamina = Math.max(this.stamina, this.cfg.dash.staminaCost);
+  }
+
   nudge(dx: number, dy: number): void {
     this.setPosition(this.x + dx, this.y + dy);
   }
@@ -421,9 +510,34 @@ export class PlayerModel {
     return phase === 'recovery' && this.attackPhaseProgress(hit, phase) >= this.cfg.attackDashCancelFrom;
   }
 
+  /** 회복약 마시기: 끝까지 마셔야 회복 (중간에 맞으면 hit 상태로 바뀌어 회복 없음) */
+  private updateHeal(): void {
+    const potion = this.cfg.potion;
+    if (!potion || this.stateTimeMs < potion.drinkMs) return;
+    const before = this.hp;
+    this.hp = Math.min(this.cfg.maxHp, this.hp + potion.heal);
+    this.events.push({ type: 'healed', amount: this.hp - before });
+    this.enter('idle');
+  }
+
+  /** 공중: 중력. 어느 상태든 (공격 중에도) 떨어진다 */
+  private updateAir(dtMs: number): void {
+    if (this.z <= 0 && this.vz <= 0) return;
+    const g = this.cfg.jump?.gravity ?? 1450;
+    const sec = dtMs / 1000;
+    this.z += this.vz * sec - 0.5 * g * sec * sec;
+    this.vz -= g * sec;
+    if (this.z <= 0) {
+      this.z = 0;
+      this.vz = 0;
+      this.events.push({ type: 'land' });
+    }
+  }
+
   private enter(state: PlayerState): void {
     this._state = state;
     this.stateTimeMs = 0;
+    if (state !== 'move') this.vel = { x: 0, y: 0 }; // 다른 동작이 시작되면 걷던 속도는 끊긴다
   }
 
   /** 스태미나가 충분하면 소모하고 true, 부족하면 아무것도 하지 않고 false */

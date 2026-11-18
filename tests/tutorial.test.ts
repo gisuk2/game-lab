@@ -41,12 +41,16 @@ describe('튜토리얼 진행', () => {
     }
   });
 
-  it('대본 순서: 속마음 글 → 장부(현황 → 결재함) → 평범한 서류 → 분수대 → 주점 → 서명 → 집사 소식 → 던전', () => {
+  it('대본 순서: 속마음 글 → 장부 결재함 → 평범한 서류 → 분수대 → 주점 → 서명 → 집사 신문 → 가 보기로 던전', () => {
     const waits = TUTORIAL.filter((s) => s.wait).map((s) => s.wait);
     expect(waits).toEqual([
-      'name', 'memo', 'openLedger', 'tabStatus', 'tabInbox', 'open:secretaryLeave', 'approve', 'open:fountain', 'approve',
-      'closeLedger', 'enterTavern', 'leaveDistrict', 'openLedger', 'sign', 'openButler', 'closeButler', 'enterDungeon',
+      'name', 'memo', 'openLedger', 'open:secretaryLeave', 'approve', 'open:fountain', 'approve',
+      'closeLedger', 'enterTavern', 'leaveDistrict', 'openLedger', 'sign', 'openButler', 'enterDungeon',
     ]);
+  });
+
+  it('던전에는 신문의 [가 보기]로 감', () => {
+    expect(TUTORIAL.find((s) => s.wait === 'enterDungeon')!.target).toBe('news-goto-fountain');
   });
 
   it('속마음은 한 장: 하나씩 넘기는 독백 대신 글 단계 하나 + 목표 3개', () => {
