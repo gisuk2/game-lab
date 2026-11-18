@@ -9,16 +9,22 @@ const run = (b: Battle, sec: number) => { for (let t = 0; t < sec; t += RULES.dt
 /** 선원을 빈 방으로 치워 둠 (한 가지만 시험하려고) */
 const calm = (b: Battle) => { for (const s of b.ships) for (const c of s.crew) c.room = s.side === 0 ? 'empty1' : 'deck'; };
 
-describe('판옥선 단면 구조', () => {
-  it('같은 층 옆방끼리 문이 생기고, 위아래는 사다리로만 이어짐', () => {
+describe('판옥선 평면 구조', () => {
+  it('붙은 방끼리 문 17개 + 바깥 배수구 3개', () => {
     const s = fresh().ships[0];
-    expect(s.doors.length).toBe(7);
-    expect(s.doors.every((d) => s.rooms.find((r) => r.id === d.a)!.floor === s.rooms.find((r) => r.id === d.b)!.floor)).toBe(true);
+    expect(s.doors.filter((d) => d.b !== null).length).toBe(17);
+    expect(s.doors.filter((d) => d.b === null).length).toBe(3);
+    expect(s.doors.some((d) => d.id === 'oars|guns')).toBe(false); // 모서리만 닿으면 문 없음
   });
-  it('길찾기는 문과 사다리를 따라감 (장대 → 의원실)', () => {
+  it('바깥 벽에 닿은 방과 안쪽 방을 가림', () => {
+    const s = fresh().ships[0];
+    const inner = s.rooms.filter((r) => !r.outer).map((r) => r.id).sort().join(',');
+    expect(inner).toBe('empty1,medic,pump,ward');
+  });
+  it('길찾기는 문을 따라감 (장대 → 격군실)', () => {
     const b = fresh(); const s = b.ships[0];
-    const p = b.path(s, 'helm', 'medic')!;
-    expect(p[p.length - 1]).toBe('medic');
+    const p = b.path(s, 'helm', 'oars')!;
+    expect(p[p.length - 1]).toBe('oars');
     let cur = 'helm';
     for (const n of p) { expect(b.neighbors(s, cur).some((x) => x.to === n)).toBe(true); cur = n; }
   });
@@ -37,18 +43,42 @@ describe('마력', () => {
     expect(b.toggleWeapon(0, 0, true)).toBe(true); // 지자 2칸
     expect(b.usedPower(s)).toBe(8);
   });
-  it('포갑판 등급(3)보다 많은 총통은 못 켬', () => {
+  it('총통은 달린 포갑판 등급까지만 켬 (좌현 2칸)', () => {
     const b = fresh(); const s = b.ships[0];
-    s.weapons.push({ def: s.weapons[0].def, powered: false, charge: 0, target: null });
-    expect(b.toggleWeapon(0, 0, true)).toBe(true);
-    expect(b.toggleWeapon(0, 1, true)).toBe(true);
+    s.weapons.push({ def: WEAPONS.hwangja, mount: 'guns', powered: false, want: false, charge: 0, target: null });
+    expect(b.toggleWeapon(0, 0, true)).toBe(true); // 지자 2칸 → 좌현 가득
     expect(b.toggleWeapon(0, 2, true)).toBe(false);
+    expect(b.toggleWeapon(0, 1, true)).toBe(true); // 우현 황자는 따로
   });
   it('고장 나면 그만큼 마력이 빠짐', () => {
     const b = fresh(); const s = b.ships[0]; calm(b);
     b.setPower(0, 'ward', 2); s.sys.ward!.damage = 1; b.step();
     expect(s.sys.ward!.power).toBe(1);
     expect(b.maxLayers(s)).toBe(0);
+  });
+  it('고치면 원래 마력이 저절로 다시 꽂힘', () => {
+    const b = fresh(); const s = b.ships[0]; calm(b);
+    b.setPower(0, 'ward', 2); s.sys.ward!.damage = 2; b.step();
+    expect(s.sys.ward!.power).toBe(0);
+    s.sys.ward!.damage = 0; b.step();
+    expect(s.sys.ward!.power).toBe(2);
+  });
+  it('총통도 고치면 다시 켜지고 조준은 그대로', () => {
+    const b = fresh(); const s = b.ships[0]; calm(b);
+    b.toggleWeapon(0, 0, true); b.setTarget(0, 0, 'ward');
+    s.sys.guns!.damage = 2; b.step();
+    expect(s.weapons[0].powered).toBe(false);
+    s.sys.guns!.damage = 0; b.step();
+    expect(s.weapons[0].powered).toBe(true);
+    expect(s.weapons[0].target).toBe('ward');
+  });
+  it('마력로가 모자라면 남는 만큼만 돌아옴', () => {
+    const b = fresh(); const s = b.ships[0]; calm(b);
+    b.setPower(0, 'ward', 2); s.sys.ward!.damage = 2; b.step();
+    b.setPower(0, 'oars', 2); b.setPower(0, 'helm', 1); b.setPower(0, 'pump', 1); b.setPower(0, 'medic', 1); b.setPower(0, 'scope', 1); b.toggleWeapon(0, 1, true);
+    s.sys.ward!.damage = 0; b.step();
+    expect(s.sys.ward!.power).toBe(1);
+    expect(b.freePower(s)).toBe(0);
   });
 });
 
@@ -96,7 +126,7 @@ describe('총통과 결계', () => {
   });
   it('거리마다 명중률이 다름: 조총은 원거리에서 약함', () => {
     const far = fresh('far'); const near = fresh('near');
-    const j = WAESEON.weapons[0];
+    const j = WAESEON.weapons[0].id;
     expect(far.hitChance(1, far.ships[1].weapons[0].def)).toBeLessThan(near.hitChance(1, near.ships[1].weapons[0].def));
     expect(j).toBe('jochong');
   });
@@ -111,17 +141,26 @@ describe('총통과 결계', () => {
   });
 });
 
-describe('물: 아래로 흐름', () => {
-  it('아래층 구멍은 위층 구멍보다 빨리 배를 채움', () => {
+describe('물: 바깥 벽 방과 배수구', () => {
+  it('바깥 벽 방은 안쪽 방보다 구멍으로 물이 빨리 참', () => {
     const total = (id: string) => { const b = fresh(); calm(b); const s = b.ships[0]; b.room(s, id).breach = true; run(b, 5); return s.rooms.reduce((n, r) => n + r.water, 0); };
-    expect(total('oars')).toBeGreaterThan(total('helm'));
+    expect(total('oars')).toBeGreaterThan(total('ward'));
   });
-  it('위층 물은 사다리 구멍으로 아래층에 떨어짐', () => {
+  it('배수구를 열면 그 방 물이 바다로 빠짐', () => {
     const b = fresh(); calm(b); const s = b.ships[0];
-    b.room(s, 'guns').water = 1;
+    b.room(s, 'oars').water = 2; b.setPower(0, 'doors', 1);
+    expect(b.toggleDoor(0, 'oars|바다')).toBe(true);
     run(b, 3);
-    expect(b.room(s, 'guns').water).toBeLessThan(0.2);
-    expect(b.room(s, 'ward').water).toBeGreaterThan(0.5);
+    expect(b.room(s, 'oars').water).toBeCloseTo(2 - RULES.drain * 3, 1);
+  });
+  it('배수구를 열어 둔 방에 구멍이 나면 물이 더 빨리 참', () => {
+    const fill = (open: boolean) => {
+      const b = fresh(); calm(b); const s = b.ships[0]; b.setPower(0, 'doors', 1);
+      if (open) b.toggleDoor(0, 'guns|바다');
+      b.room(s, 'guns').breach = true; b.room(s, 'guns').water = 3; run(b, 1); return b.room(s, 'guns').water;
+    };
+    expect(fill(true)).toBeLessThan(3); // 열면 빠지는 게 더 큼
+    expect(RULES.drainSplash).toBeGreaterThan(1);
   });
   it('닫힌 문은 물을 막고, 열린 문으로는 퍼짐', () => {
     const b = fresh(); calm(b); const s = b.ships[0];
@@ -145,7 +184,7 @@ describe('물: 아래로 흐름', () => {
     const b = fresh(); const s = b.ships[0];
     b.setPower(0, 'ward', 2);
     expect(b.eff(s, 'ward')).toBe(2);
-    b.room(s, 'ward').water = 0.7;
+    b.room(s, 'ward').water = 1.4; // 결계실 2칸 → 70%
     expect(b.eff(s, 'ward')).toBe(0);
   });
 });
@@ -163,13 +202,13 @@ describe('불: 위로 번짐', () => {
     const c = s.crew[0]; c.alive = true; c.hp = 100; c.room = 'medic';
     run(b, 6); expect(r.fire).toBe(0);
   });
-  it('사다리로는 아래→위가 위→아래보다 잘 번짐', () => {
-    let up = 0; let down = 0;
+  it('열린 문으로 더 잘 번짐', () => {
+    let open = 0; let closed = 0;
     for (let seed = 1; seed <= 60; seed++) {
-      const a = fresh('mid', seed); calm(a); a.room(a.ships[0], 'ward').fire = 1; run(a, 5); if (a.room(a.ships[0], 'guns').fire > 0) up++;
-      const d = fresh('mid', seed); calm(d); d.room(d.ships[0], 'guns').fire = 1; run(d, 5); if (d.room(d.ships[0], 'ward').fire > 0) down++;
+      const a = fresh('mid', seed); calm(a); a.setPower(0, 'doors', 1); a.toggleDoor(0, 'ward|pump'); a.room(a.ships[0], 'ward').fire = 1; run(a, 5); if (a.room(a.ships[0], 'pump').fire > 0) open++;
+      const d = fresh('mid', seed); calm(d); d.room(d.ships[0], 'ward').fire = 1; run(d, 5); if (d.room(d.ships[0], 'pump').fire > 0) closed++;
     }
-    expect(up).toBeGreaterThan(down);
+    expect(open).toBeGreaterThan(closed);
   });
 });
 
@@ -181,7 +220,7 @@ describe('선원', () => {
     expect(r.breach).toBe(false);
     expect(s.sys.oars!.damage).toBe(0);
   });
-  it('명령하면 문·사다리를 따라 걸어감', () => {
+  it('명령하면 문을 따라 걸어감', () => {
     const b = fresh(); const s = b.ships[0]; const c = s.crew[0];
     b.moveCrew(0, c.id, 'medic');
     run(b, 1); expect(c.room === 'medic').toBe(false);

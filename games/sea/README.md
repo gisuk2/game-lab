@@ -12,7 +12,7 @@
 
 ## 구조
 - `src/sim/` 순수 로직 (화면 없음): `data.ts` 배·무기·진법 데이터, `battle.ts` 전투 한 판, `encounter.ts` 정찰 판정, `bot.ts` 봇
-- `src/app/` 캔버스 화면: `SeaApp.ts`, `layout.ts`(단면 좌표), `sea.css`
+- `src/app/` 캔버스 화면: `SeaApp.ts`, `layout.ts`(평면 좌표), `sea.css`
 - `tests/` 로직 테스트 · `scripts/sim-battle.ts` 봇 대결 (`npx tsx games/sea/scripts/sim-battle.ts 1000`)
 
 실행: `npm run dev` → http://localhost:5173/games/sea/

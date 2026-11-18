@@ -1,7 +1,8 @@
 // 이세계 수군 — 전투 한 판의 순수 로직 (화면 없음). 고정 시간 간격으로 step(dt)을 부른다.
-// 규칙: core.md §6.2(방), §7(물·불·구멍), §8(전투·거리·진법). 물은 아래로 흐르고 불은 위로 번진다.
+// 규칙: core.md §6.2(방), §7(물·불·구멍), §8(전투·거리·진법).
+// 배는 위에서 내려다본 평면: 붙은 방끼리 문, 바깥 벽 방은 구멍 나면 물이 빨리 참, 배수구로 물을 뺌.
 import {
-  FORMATIONS, FORMATION_COOLDOWN, MANNED, RULES, SYSTEM_NAME, WEAPONS,
+  FORMATIONS, FORMATION_COOLDOWN, GUN_SYS, MANNED, RULES, SYSTEM_NAME, WEAPONS,
   type Distance, type FormationId, type RoomDef, type ShipDef, type SystemId, type WeaponDef,
 } from './data';
 
@@ -20,11 +21,13 @@ export class Rng {
 }
 
 export type Side = 0 | 1;
-export interface SysState { level: number; power: number; damage: number; repair: number; burn: number }
-export interface Room extends RoomDef { water: number; fire: number; breach: boolean; breachRepair: number }
-export interface Door { id: string; a: string; b: string; open: boolean }
+/** want = 플레이어가 원한 마력. 고장·침수로 빠졌다가 고쳐지면 저절로 다시 꽂힘 */
+export interface SysState { level: number; power: number; want: number; damage: number; repair: number; burn: number }
+export interface Room extends RoomDef { water: number; fire: number; breach: boolean; breachRepair: number; outer: boolean }
+/** 문: b가 null이면 배수구(바깥 문). x, y = 문 가운데(칸 단위), vert = 세로 벽에 달린 문 */
+export interface Door { id: string; a: string; b: string | null; open: boolean; x: number; y: number; vert: boolean }
 export interface Crew { id: number; name: string; hp: number; maxHp: number; room: string; path: string[]; prog: number; alive: boolean }
-export interface Weapon { def: WeaponDef; powered: boolean; charge: number; target: string | null }
+export interface Weapon { def: WeaponDef; mount: SystemId; powered: boolean; want: boolean; charge: number; target: string | null }
 export interface Ship {
   side: Side; def: ShipDef; hull: number; maxHull: number; reactor: number;
   rooms: Room[]; doors: Door[];
@@ -40,11 +43,45 @@ export type EventKind = 'hit' | 'miss' | 'absorb' | 'breach' | 'fire' | 'death' 
 export interface BattleEvent { t: number; side: Side; room?: string; kind: EventKind; text: string }
 export type CrewTask = 'move' | 'fire' | 'breach' | 'repair' | 'man' | 'heal' | 'idle';
 export interface Result { winner: Side; reason: 'hull' | 'crew' }
-
 export interface BattleOptions { seed?: number; formation?: [FormationId | null, FormationId | null] }
 
 const other = (s: Side): Side => (s === 0 ? 1 : 0);
-const level = (r: Room) => r.water / r.w;
+const area = (r: RoomDef) => r.w * r.h;
+const level = (r: Room) => r.water / area(r);
+const center = (r: RoomDef) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+
+/** 붙은 방 사이 문, 배수구, 바깥 벽 방 계산 */
+export function buildDoors(def: ShipDef): { doors: Door[]; outer: Set<string> } {
+  const doors: Door[] = [];
+  const R = def.rooms;
+  for (let i = 0; i < R.length; i++) for (let j = i + 1; j < R.length; j++) {
+    const a = R[i]; const b = R[j];
+    if (a.x + a.w === b.x || b.x + b.w === a.x) { // 세로 벽 공유
+      const y0 = Math.max(a.y, b.y); const y1 = Math.min(a.y + a.h, b.y + b.h);
+      if (y1 > y0) doors.push({ id: `${a.id}|${b.id}`, a: a.id, b: b.id, open: false, x: a.x + a.w === b.x ? b.x : a.x, y: (y0 + y1) / 2, vert: true });
+    } else if (a.y + a.h === b.y || b.y + b.h === a.y) { // 가로 벽 공유
+      const x0 = Math.max(a.x, b.x); const x1 = Math.min(a.x + a.w, b.x + b.w);
+      if (x1 > x0) doors.push({ id: `${a.id}|${b.id}`, a: a.id, b: b.id, open: false, x: (x0 + x1) / 2, y: a.y + a.h === b.y ? b.y : a.y, vert: false });
+    }
+  }
+  // 바깥 벽: 방 둘레의 칸 변 중 다른 방과 맞닿지 않은 것이 있으면 바깥 방
+  const cell = new Set<string>();
+  for (const r of R) for (let x = r.x; x < r.x + r.w; x++) for (let y = r.y; y < r.y + r.h; y++) cell.add(`${x},${y}`);
+  const outer = new Set<string>();
+  for (const r of R) {
+    let out = false;
+    for (let x = r.x; x < r.x + r.w; x++) { if (!cell.has(`${x},${r.y - 1}`) || !cell.has(`${x},${r.y + r.h}`)) out = true; }
+    for (let y = r.y; y < r.y + r.h; y++) { if (!cell.has(`${r.x - 1},${y}`) || !cell.has(`${r.x + r.w},${y}`)) out = true; }
+    if (out) outer.add(r.id);
+  }
+  for (const d of def.drains) {
+    const r = R.find((x) => x.id === d.room)!;
+    const pos = d.side === 'n' ? { x: r.x + r.w / 2, y: r.y, vert: false } : d.side === 's' ? { x: r.x + r.w / 2, y: r.y + r.h, vert: false }
+      : d.side === 'w' ? { x: r.x, y: r.y + r.h / 2, vert: true } : { x: r.x + r.w, y: r.y + r.h / 2, vert: true };
+    doors.push({ id: `${r.id}|바다`, a: r.id, b: null, open: false, ...pos });
+  }
+  return { doors, outer };
+}
 
 /** 처음 자리: 장대 → 포갑판 → 격군실 → 결계실 순 */
 function startRoom(def: ShipDef, i: number): string {
@@ -54,15 +91,13 @@ function startRoom(def: ShipDef, i: number): string {
 }
 
 export function makeShip(def: ShipDef, side: Side): Ship {
-  const rooms: Room[] = def.rooms.map((r) => ({ ...r, water: 0, fire: 0, breach: false, breachRepair: 0 }));
-  const doors: Door[] = [];
-  for (const a of rooms) for (const b of rooms)
-    if (a.floor === b.floor && a.col + a.w === b.col) doors.push({ id: `${a.id}|${b.id}`, a: a.id, b: b.id, open: false });
+  const { doors, outer } = buildDoors(def);
+  const rooms: Room[] = def.rooms.map((r) => ({ ...r, water: 0, fire: 0, breach: false, breachRepair: 0, outer: outer.has(r.id) }));
   const sys: Partial<Record<SystemId, SysState>> = {};
-  for (const [k, lv] of Object.entries(def.systems) as [SystemId, number][]) sys[k] = { level: lv, power: 0, damage: 0, repair: 0, burn: 0 };
+  for (const [k, lv] of Object.entries(def.systems) as [SystemId, number][]) sys[k] = { level: lv, power: 0, want: 0, damage: 0, repair: 0, burn: 0 };
   return {
     side, def, hull: def.hull, maxHull: def.hull, reactor: def.reactor, rooms, doors, sys,
-    weapons: def.weapons.map((id) => ({ def: WEAPONS[id], powered: false, charge: 0, target: null })),
+    weapons: def.weapons.map((w) => ({ def: WEAPONS[w.id], mount: w.mount, powered: false, want: false, charge: 0, target: null })),
     crew: def.crew.map((name, i) => ({ id: side * 100 + i, name, hp: 100, maxHp: 100, room: startRoom(def, i), path: [], prog: 0, alive: true })),
     wardLayers: 0, wardTimer: 0, formation: null, formationCd: 0, volley: false,
   };
@@ -88,6 +123,7 @@ export class Battle {
   usedPower(s: Ship): number { return Object.values(s.sys).reduce((n, x) => n + (x?.power ?? 0), 0); }
   freePower(s: Ship): number { return s.reactor - this.usedPower(s); }
   maxPower(s: Ship, sys: SystemId): number { const x = s.sys[sys]; return x ? x.level - x.damage : 0; }
+  waterLevel(r: Room): number { return level(r); }
   /** 실제로 일하는 마력: 고장·물에 잠김(60%↑)을 뺀 값 */
   eff(s: Ship, sys: SystemId): number {
     const x = s.sys[sys]; const r = this.roomOf(s, sys);
@@ -121,23 +157,43 @@ export class Battle {
   maxLayers(s: Ship): number { return Math.floor(this.eff(s, 'ward') / 2); }
   hitChance(attacker: Side, w: WeaponDef): number { return w.acc[this.distance] * (1 - this.evasion(this.ships[other(attacker)])); }
   canToggleDoors(s: Ship): boolean { return this.eff(s, 'doors') >= 1; }
+  /** 이 총통이 지금 충전될 수 있나: 달린 포갑판의 일하는 마력 안에 들어야 함 */
+  gunLive(s: Ship, i: number): boolean {
+    const w = s.weapons[i]; if (!w.powered) return false;
+    let cum = 0;
+    for (let k = 0; k <= i; k++) if (s.weapons[k].powered && s.weapons[k].mount === w.mount) cum += s.weapons[k].def.power;
+    return cum <= this.eff(s, w.mount);
+  }
 
   // ── 명령 ──
+  /** 마력 정하기: 원하는 값(want)을 기억하고, 지금 꽂을 수 있는 만큼만 꽂음 */
   setPower(side: Side, sys: SystemId, n: number): void {
-    if (sys === 'guns') return; // 포갑판 마력 = 켠 총통 마력 합 (toggleWeapon)
+    if (GUN_SYS.includes(sys)) return; // 포갑판 마력 = 켠 총통 마력 합 (toggleWeapon)
     const s = this.ships[side]; const x = s.sys[sys]; if (!x) return;
-    x.power = Math.max(0, Math.min(n, this.maxPower(s, sys), x.power + this.freePower(s)));
+    x.want = Math.max(0, Math.min(n, x.level));
+    x.power = Math.max(0, Math.min(x.want, this.maxPower(s, sys), x.power + this.freePower(s)));
   }
+  /** +1: 원하는 값을 하나 올림(고장으로 못 꽂힌 상태면 그대로) / −1: 원하는 값을 하나 내림 */
   addPower(side: Side, sys: SystemId, d: number): void {
-    const x = this.ships[side].sys[sys]; if (x) this.setPower(side, sys, x.power + d);
+    const x = this.ships[side].sys[sys]; if (!x) return;
+    this.setPower(side, sys, d > 0 ? Math.max(x.want, x.power + 1) : x.want - 1);
   }
   toggleWeapon(side: Side, i: number, on?: boolean): boolean {
-    const s = this.ships[side]; const w = s.weapons[i]; const g = s.sys.guns; if (!w || !g) return false;
-    const want = on ?? !w.powered;
-    if (want === w.powered) return true;
-    if (!want) { w.powered = false; g.power -= w.def.power; return true; }
-    if (g.power + w.def.power > this.maxPower(s, 'guns') || w.def.power > this.freePower(s)) return false;
-    w.powered = true; g.power += w.def.power; return true;
+    const s = this.ships[side]; const w = s.weapons[i]; if (!w) return false;
+    const want = on ?? !w.want;
+    w.want = want;
+    if (!want) { this.unpowerGun(s, i); return true; }
+    return this.powerGun(s, i);
+  }
+  private powerGun(s: Ship, i: number): boolean {
+    const w = s.weapons[i]; const g = s.sys[w.mount]; if (!g) return false;
+    if (w.powered) return true;
+    if (g.power + w.def.power > this.maxPower(s, w.mount) || w.def.power > this.freePower(s)) return false;
+    w.powered = true; g.power += w.def.power; g.want = Math.max(g.want, g.power); return true;
+  }
+  private unpowerGun(s: Ship, i: number) {
+    const w = s.weapons[i]; const g = s.sys[w.mount]; if (!g || !w.powered) return;
+    w.powered = false; g.power -= w.def.power;
   }
   setTarget(side: Side, i: number, roomId: string | null): void { const w = this.ships[side].weapons[i]; if (w) w.target = roomId; }
   moveCrew(side: Side, crewId: number, roomId: string): void {
@@ -159,18 +215,15 @@ export class Battle {
     s.formation = f; s.formationCd = FORMATION_COOLDOWN; return true;
   }
 
-  // ── 길찾기: 문(같은 층 옆방)과 사다리(위아래) ──
-  neighbors(s: Ship, id: string): { to: string; time: number; ladder: boolean; door?: Door }[] {
-    const out: { to: string; time: number; ladder: boolean; door?: Door }[] = [];
-    const cx = (r: Room) => r.col + r.w / 2;
+  // ── 길찾기: 방 사이 문 (배수구 제외) ──
+  neighbors(s: Ship, id: string): { to: string; time: number; door: Door }[] {
+    const out: { to: string; time: number; door: Door }[] = [];
     for (const d of s.doors) {
-      if (d.a !== id && d.b !== id) continue;
-      const a = this.room(s, d.a); const b = this.room(s, d.b);
-      out.push({ to: d.a === id ? d.b : d.a, time: RULES.walkPerCol * Math.abs(cx(a) - cx(b)), ladder: false, door: d });
-    }
-    for (const l of s.def.ladders) {
-      if (l.up === id) out.push({ to: l.down, time: RULES.ladderTime, ladder: true });
-      if (l.down === id) out.push({ to: l.up, time: RULES.ladderTime, ladder: true });
+      if (d.b === null || (d.a !== id && d.b !== id)) continue;
+      const to = d.a === id ? d.b : d.a;
+      const a = center(this.room(s, id)); const door = { x: d.x, y: d.y }; const b = center(this.room(s, to));
+      const dist = Math.abs(a.x - door.x) + Math.abs(a.y - door.y) + Math.abs(b.x - door.x) + Math.abs(b.y - door.y);
+      out.push({ to, time: RULES.walkPerCell * dist, door: d });
     }
     return out;
   }
@@ -207,13 +260,7 @@ export class Battle {
   }
 
   private stepShip(s: Ship, dt: number) {
-    // 고장으로 줄어든 최대치에 맞춰 마력 회수
-    for (const [k, x] of Object.entries(s.sys) as [SystemId, SysState][]) {
-      const max = x.level - x.damage;
-      if (k === 'guns') {
-        for (let i = s.weapons.length - 1; i >= 0 && x.power > max; i--) if (s.weapons[i].powered) this.toggleWeapon(s.side, i, false);
-      } else if (x.power > max) x.power = max;
-    }
+    this.stepPower(s);
     // 결계
     const maxL = this.maxLayers(s);
     if (s.wardLayers > maxL) s.wardLayers = maxL;
@@ -223,15 +270,13 @@ export class Battle {
     } else s.wardTimer = 0;
     // 총통 충전·발사
     const f = s.formation ? FORMATIONS[s.formation] : null;
-    const budget = this.eff(s, 'guns'); let cum = 0;
-    const gunBonus = this.manned(s, 'guns') ? 1.1 : 1;
-    let c2 = 0;
-    const holding = s.volley && s.weapons.some((w) => { if (w.powered) c2 += w.def.power; return w.powered && w.target && c2 <= budget && w.charge < w.def.charge; });
-    s.weapons.forEach((w) => {
-      if (w.powered) cum += w.def.power;
-      if (w.powered && cum <= budget) w.charge = Math.min(w.def.charge, w.charge + dt * (f?.charge ?? 1) * gunBonus);
+    const live = s.weapons.map((_, i) => this.gunLive(s, i));
+    const holding = s.volley && s.weapons.some((w, i) => live[i] && w.target && w.charge < w.def.charge);
+    s.weapons.forEach((w, i) => {
+      const bonus = this.manned(s, w.mount) ? 1.1 : 1;
+      if (live[i]) w.charge = Math.min(w.def.charge, w.charge + dt * (f?.charge ?? 1) * bonus);
       else w.charge = Math.max(0, w.charge - dt * 2);
-      if (w.powered && w.charge >= w.def.charge && w.target && cum <= budget && !holding) {
+      if (live[i] && w.charge >= w.def.charge && w.target && !holding) {
         const total = RULES.travel[this.distance];
         for (let k = 0; k < w.def.shots; k++) this.projectiles.push({ from: s.side, weapon: w.def, target: w.target, t: -k * 0.2, total });
         w.charge = 0;
@@ -246,6 +291,23 @@ export class Battle {
     const heal = this.eff(s, 'medic'); const mr = this.roomOf(s, 'medic');
     if (heal > 0 && mr) for (const c of this.crewIn(s, mr.id)) c.hp = Math.min(c.maxHp, c.hp + RULES.heal * heal * dt);
     for (const c of s.crew) if (c.alive && c.hp <= 0) { c.alive = false; c.hp = 0; this.log(s.side, 'death', `${c.name} 쓰러짐`, c.room); }
+  }
+
+  /** 고장으로 줄어든 최대치에 맞춰 마력을 빼고, 고쳐지면 원래(want)대로 다시 꽂음 */
+  private stepPower(s: Ship) {
+    for (const [k, x] of Object.entries(s.sys) as [SystemId, SysState][]) {
+      const max = x.level - x.damage;
+      if (GUN_SYS.includes(k)) {
+        for (let i = s.weapons.length - 1; i >= 0 && x.power > max; i--) if (s.weapons[i].mount === k && s.weapons[i].powered) this.unpowerGun(s, i);
+      } else if (x.power > max) x.power = max;
+    }
+    for (const k of Object.keys(s.sys) as SystemId[]) {
+      const x = s.sys[k]!;
+      if (GUN_SYS.includes(k)) continue;
+      const target = Math.min(x.want, x.level - x.damage);
+      if (x.power < target) x.power = Math.min(target, x.power + this.freePower(s));
+    }
+    s.weapons.forEach((w, i) => { if (w.want && !w.powered) this.powerGun(s, i); });
   }
 
   private stepCrew(s: Ship, dt: number) {
@@ -276,28 +338,26 @@ export class Battle {
   }
 
   private stepWater(s: Ship, dt: number) {
-    for (const r of s.rooms) if (r.breach) r.water = Math.min(r.w, r.water + RULES.inflow[r.floor] * dt);
-    // 열린 문: 수위 맞추기
+    for (const r of s.rooms) {
+      if (!r.breach) continue;
+      const drainOpen = s.doors.some((d) => d.b === null && d.a === r.id && d.open);
+      r.water += RULES.inflow[r.outer ? 1 : 0] * dt * (drainOpen ? RULES.drainSplash : 1);
+    }
     for (const d of s.doors) {
       if (!d.open) continue;
-      const a = this.room(s, d.a); const b = this.room(s, d.b);
+      const a = this.room(s, d.a);
+      if (d.b === null) { a.water = Math.max(0, a.water - RULES.drain * dt); continue; } // 배수구: 바다로 빠짐
+      const b = this.room(s, d.b);
       const diff = level(a) - level(b);
-      const amt = RULES.doorFlow * diff * Math.min(a.w, b.w) * dt * 0.5;
+      const amt = RULES.doorFlow * diff * Math.min(area(a), area(b)) * dt * 0.5;
       a.water -= amt; b.water += amt;
     }
-    // 사다리 구멍: 위층 물이 아래층으로 떨어짐
-    for (const l of s.def.ladders) {
-      const up = this.room(s, l.up); const dn = this.room(s, l.down);
-      if (up.water <= 0) continue;
-      const amt = Math.min(up.water, Math.max(RULES.fall * up.water, 0.05) * dt, dn.w - dn.water);
-      up.water -= amt; dn.water += amt;
-    }
-    // 배수실: 물 많은 방부터 퍼냄 (아래층 우선)
+    // 배수실: 물 많은 방부터 퍼냄
     let left = this.eff(s, 'pump') * RULES.pump * dt;
-    const order = [...s.rooms].sort((a, b) => b.floor - a.floor || b.water - a.water);
+    const order = [...s.rooms].sort((a, b) => level(b) - level(a));
     for (const r of order) { if (left <= 0) break; const take = Math.min(r.water, left); r.water -= take; left -= take; }
     for (const r of s.rooms) {
-      r.water = Math.max(0, Math.min(r.w, r.water));
+      r.water = Math.max(0, Math.min(area(r), r.water));
       const lv = level(r);
       const dmg = lv >= RULES.fullWater ? RULES.waterCrewDmg[1] : lv >= RULES.offWater ? RULES.waterCrewDmg[0] : 0;
       if (dmg) for (const c of this.crewIn(s, r.id)) c.hp -= dmg * dt;
@@ -313,14 +373,11 @@ export class Battle {
       const x = r.sys ? s.sys[r.sys] : undefined;
       if (x) {
         x.burn += RULES.fireSysDmg * r.fire * dt;
-        if (x.burn >= 1) { x.burn = 0; if (x.damage < x.level) { x.damage++; this.log(s.side, 'sysdown', `${SYSTEM_NAME[r.sys!]} 불에 탐`, r.id); } }
+        if (x.burn >= 1) { x.burn = 0; if (x.damage < x.level) { x.damage++; this.log(s.side, 'sysdown', `${r.name ?? SYSTEM_NAME[r.sys!]} 불에 탐`, r.id); } }
       }
       for (const c of this.crewIn(s, r.id)) c.hp -= RULES.fireCrewDmg * r.fire * dt;
-      // 번짐: 열린 문 쉽게, 닫힌 문 어렵게, 사다리는 위로 쉽게(불은 위로)
       for (const n of this.neighbors(s, r.id)) {
-        let p: number;
-        if (n.ladder) p = this.room(s, n.to).floor < r.floor ? RULES.fireSpread : RULES.fireSpreadClosed;
-        else p = n.door?.open ? RULES.fireSpread : RULES.fireSpreadClosed;
+        const p = n.door.open ? RULES.fireSpread : RULES.fireSpreadClosed;
         if (this.rng.chance(p * r.fire * dt)) ignite.push(n.to);
       }
     }

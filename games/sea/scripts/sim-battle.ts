@@ -7,7 +7,8 @@ import { rollScout } from '../src/sim/encounter';
 
 const N = Number(process.argv[2] ?? 300);
 const pct = (x: number) => `${Math.round(x * 100)}%`;
-const withGuns = (ids: string[]): ShipDef => ({ ...PANOKSEON, weapons: ids });
+// 조합 비교용: 총통을 모두 좌현 포갑판(3칸)에 담
+const withGuns = (ids: string[]): ShipDef => ({ ...PANOKSEON, systems: { ...PANOKSEON.systems, guns: 3, gunsR: 0 }, weapons: ids.map((id) => ({ id, mount: 'guns' as const })) });
 const gunsName = (ids: string[]) => ids.map((i) => WEAPONS[i].name.replace('총통', '')).join('+');
 
 interface Stat { win: number; t: number; hull: number; timeout: number }

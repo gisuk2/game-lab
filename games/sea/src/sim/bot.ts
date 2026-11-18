@@ -1,5 +1,5 @@
 // 전투 봇: 밸런스 시험(봇끼리 대결)과 적 왜선 조종에 같이 쓴다.
-import type { SystemId } from './data';
+import { GUN_SYS, type SystemId } from './data';
 import type { Battle, Crew, Ship, Side } from './battle';
 
 export interface BotOptions {
@@ -18,9 +18,9 @@ export function botThink(b: Battle, side: Side, o: BotOptions = {}): void {
   const s = b.ships[side]; const enemy = b.ships[side === 0 ? 1 : 0];
   // 1) 마력: 결계를 먼저 1겹, 총통, 나머지
   let order = o.powerOrder ?? DEFAULT_ORDER;
-  const flooding = s.rooms.some((r) => r.water / r.w > 0.25);
+  const flooding = s.rooms.some((r) => b.waterLevel(r) > 0.25);
   if (flooding) order = ['pump', ...order.filter((k) => k !== 'pump')];
-  for (const k of Object.keys(s.sys) as SystemId[]) if (k !== 'guns') b.setPower(side, k, 0);
+  for (const k of Object.keys(s.sys) as SystemId[]) if (!GUN_SYS.includes(k)) b.setPower(side, k, 0);
   if (s.sys.ward) b.setPower(side, 'ward', 2);
   if (flooding) b.setPower(side, 'pump', 99);
   s.weapons.forEach((_, i) => b.toggleWeapon(side, i, true));
@@ -52,7 +52,7 @@ function crewThink(b: Battle, s: Ship) {
   const station = (i: number) => b.roomOf(s, STATIONS[i % STATIONS.length])?.id ?? s.rooms[0].id;
   // 위험한 방 (불 > 구멍 > 고장), 물에 잠긴 방은 피함
   const hazards = s.rooms
-    .filter((r) => r.water / r.w < 0.6 && (r.fire > 0 || r.breach || (r.sys && (s.sys[r.sys]?.damage ?? 0) > 0)))
+    .filter((r) => b.waterLevel(r) < 0.6 && (r.fire > 0 || r.breach || (r.sys && (s.sys[r.sys]?.damage ?? 0) > 0)))
     .sort((a, b2) => (b2.fire > 0 ? 3 : b2.breach ? 2 : 1) - (a.fire > 0 ? 3 : a.breach ? 2 : 1));
   const medic = b.roomOf(s, 'medic');
   const taken = new Set<string>();
