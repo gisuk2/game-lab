@@ -13,6 +13,7 @@ const GAMES: Record<string, string> = {
   boss: './games/boss/index.html',
   boss3d: './games/boss/3d.html',
   estate: './games/estate/index.html',
+  sea: './games/sea/index.html',
 };
 
 export default defineConfig({

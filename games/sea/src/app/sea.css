@@ -1,0 +1,66 @@
+html, body { margin: 0; height: 100%; background: #070d16; overflow: hidden; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; color: #e8d8b8; }
+#app { width: 100vw; height: 100vh; }
+#stage { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; transform-origin: 0 0; user-select: none; }
+#cv { position: absolute; inset: 0; }
+button { font: inherit; color: inherit; cursor: pointer; }
+
+#panel { position: absolute; left: 0; right: 0; bottom: 0; height: 176px; display: flex; gap: 10px; padding: 10px 14px; box-sizing: border-box;
+  background: linear-gradient(#1b130d, #120c08); border-top: 3px solid #4a3a2a; }
+#panel .col { display: flex; flex-direction: column; gap: 6px; }
+#panel .lbl { font-size: 12px; color: #b8a888; }
+.reactor { width: 200px; }
+.rbar { display: flex; gap: 3px; }
+.rbar i { width: 18px; height: 16px; background: #2a2a2a; border: 1px solid #555; }
+.rbar i.on { background: #6fd3ff; box-shadow: 0 0 6px #6fd3ff; }
+.crew { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+.cm { position: relative; font-size: 13px; padding: 2px 6px; background: #2a1f16; border: 1px solid #4a3a2a; cursor: pointer; overflow: hidden; }
+.cm i { position: absolute; left: 0; bottom: 0; height: 3px; background: #6c6; }
+.cm.sel { border-color: #ffd36b; color: #ffd36b; }
+.cm.dead { opacity: 0.35; text-decoration: line-through; }
+
+.systems { flex-direction: row !important; align-items: flex-end; gap: 4px !important; }
+.sys { width: 52px; height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; background: #241a12; border: 1px solid #4a3a2a; padding: 4px 0; }
+.sys:hover { border-color: #c9a23a; }
+.sys.off { background: #1a2a3a; }
+.sys .pips { display: flex; flex-direction: column; gap: 3px; }
+.sys .pips i { width: 26px; height: 9px; background: #333; border: 1px solid #555; }
+.sys .pips i.on { background: #7ee07e; }
+.sys .pips i.dmg { background: #c33; }
+.sys .ic { font-size: 18px; }
+.sys small { font-size: 11px; white-space: nowrap; }
+
+.weapons { flex: 1; }
+.wrow { display: flex; gap: 6px; }
+.wpn { width: 150px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 6px 8px; background: #241a12; border: 1px solid #4a3a2a; text-align: left; opacity: 0.6; }
+.wpn.on { opacity: 1; }
+.wpn.ready { border-color: #7ee07e; }
+.wpn.aim { border-color: #ffd36b; box-shadow: 0 0 10px #ffd36b; }
+.wpn .pw { color: #6fd3ff; font-size: 11px; }
+.wpn .bar { width: 100%; height: 8px; background: #333; }
+.wpn .bar i { display: block; height: 100%; background: #e0c060; }
+.wpn small { font-size: 11px; color: #b8a888; }
+
+.forms { width: 190px; }
+.frm { display: flex; flex-direction: column; align-items: flex-start; padding: 4px 8px; background: #241a12; border: 1px solid #4a3a2a; text-align: left; }
+.frm.on { border-color: #c9a23a; background: #3a2a14; }
+.frm:disabled { opacity: 0.45; cursor: default; }
+.frm small, .cd { font-size: 11px; color: #b8a888; }
+.ctrl { width: 120px; }
+.ctrl button { padding: 8px; background: #2a1f16; border: 1px solid #6a5a3a; }
+
+#log { position: absolute; left: 470px; top: 430px; width: 360px; font-size: 13px; color: #cfe0f0; text-shadow: 0 1px 2px #000; pointer-events: none; }
+#tip { position: absolute; z-index: 5; background: rgba(20,14,8,0.95); border: 1px solid #c9a23a; padding: 6px 10px; font-size: 13px; line-height: 1.5; pointer-events: none; }
+
+#modal { position: absolute; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 10; }
+#modal[hidden] { display: none; }
+#modal .card { width: 560px; padding: 24px 28px; background: #1e1418; border: 2px solid #c9a23a; }
+#modal h2 { margin: 0 0 10px; color: #f2d98a; }
+#modal .say { font-style: italic; color: #d8c8a8; }
+#modal .roll { margin: 12px 0; padding: 10px; background: #120c08; line-height: 1.7; }
+#modal .ok { color: #7ee07e; font-weight: bold; } #modal .bad { color: #ff8a7a; font-weight: bold; }
+#modal .small { font-size: 13px; color: #b8a888; }
+#modal .choices { display: flex; flex-direction: column; gap: 8px; }
+#modal .choices button { display: flex; flex-direction: column; align-items: flex-start; padding: 10px 14px; background: #2a1f16; border: 1px solid #6a5a3a; text-align: left; }
+#modal .choices button:hover { border-color: #f2d98a; }
+#modal .choices small { color: #b8a888; }
+.vol { font-size: 13px; display: flex; gap: 4px; align-items: center; cursor: pointer; }
