@@ -36,9 +36,21 @@ export interface WeaponDef {
   dmg: number; shots: number; breach: number; fire: number; crewDmg: number;
   /** 결계를 몇 겹 뚫는지 (뚫을 때마다 피해 −1) */
   pierce?: number;
-  /** 거리별 명중 배율 */
-  acc: Record<Distance, number>;
+  /** 명중률 (거리와 상관없이 같음) */
+  acc: number;
+  /** 특화 거리: 그 거리에서 싸울 때만 켜지는 보너스 (core.md §8.2) */
+  spec: WeaponSpec;
   blurb: string;
+}
+export interface WeaponSpec {
+  at: Distance; text: string;
+  shots?: number; pierce?: number; breach?: number;
+  /** 구멍이 크게 나서 물이 2배로 참 */
+  bigBreach?: boolean;
+  /** 충전 속도 배율 */
+  charge?: number; crewMul?: number; fireMul?: number;
+  /** 이 방들을 쏘면 고장 +extra */
+  rooms?: SystemId[]; extra?: number;
 }
 export interface Mount { id: string; mount: SystemId }
 
@@ -52,22 +64,22 @@ export interface ShipDef {
 }
 
 export const WEAPONS: Record<string, WeaponDef> = {
-  // 조선 총통: 이름·크기 순서는 고증(천>지>현>황), 수치는 게임 설정
-  cheonja: { id: 'cheonja', name: '천자총통', power: 3, charge: 18, dmg: 3, shots: 1, breach: 0.7, fire: 0, crewDmg: 15, pierce: 1,
-    acc: { far: 1, mid: 0.95, near: 0.7 }, blurb: '가장 큰 총통. 결계 한 겹을 뚫고 큰 구멍을 냄. 충전이 아주 느림' },
-  jija: { id: 'jija', name: '지자총통', power: 2, charge: 12, dmg: 2, shots: 1, breach: 0.5, fire: 0, crewDmg: 12,
-    acc: { far: 0.95, mid: 0.95, near: 0.8 }, blurb: '두 번째로 큰 총통. 피해 큼, 충전 느림' },
-  hyeonja: { id: 'hyeonja', name: '현자총통', power: 2, charge: 14, dmg: 1, shots: 2, breach: 0.2, fire: 0, crewDmg: 8,
-    acc: { far: 0.8, mid: 0.95, near: 0.9 }, blurb: '세 번째 크기. 두 발씩 쏘는 균형형' },
-  hwangja: { id: 'hwangja', name: '황자총통', power: 1, charge: 13, dmg: 1, shots: 1, breach: 0.1, fire: 0, crewDmg: 8,
-    acc: { far: 0.75, mid: 0.95, near: 0.95 }, blurb: '가장 작은 총통. 빠르게 결계를 두드림' },
+  // 조선 총통: 이름·크기 순서는 고증(천>지>현>황), 쓰임새·수치는 게임 설정
+  cheonja: { id: 'cheonja', name: '천자총통', power: 3, charge: 15, dmg: 3, shots: 1, breach: 0.7, fire: 0, crewDmg: 15, pierce: 1, acc: 0.9,
+    spec: { at: 'far', text: '결계 2겹까지 뚫음', pierce: 2 }, blurb: '가장 큰 총통. 결계 한 겹을 뚫고 큰 구멍을 냄. 충전이 아주 느림' },
+  jija: { id: 'jija', name: '지자총통', power: 2, charge: 12, dmg: 2, shots: 1, breach: 0.5, fire: 0, crewDmg: 12, acc: 0.9,
+    spec: { at: 'far', text: '큰 구멍 (물이 2배로 참)', bigBreach: true }, blurb: '두 번째로 큰 총통. 피해 큼, 충전 느림' },
+  hyeonja: { id: 'hyeonja', name: '현자총통', power: 2, charge: 14, dmg: 1, shots: 2, breach: 0.2, fire: 0, crewDmg: 8, acc: 0.9,
+    spec: { at: 'mid', text: '3발씩 쏨', shots: 3 }, blurb: '세 번째 크기. 두 발씩 쏘는 균형형' },
+  hwangja: { id: 'hwangja', name: '황자총통', power: 1, charge: 14, dmg: 1, shots: 2, breach: 0.1, fire: 0, crewDmg: 8, acc: 0.9,
+    spec: { at: 'near', text: '충전 빠름, 장대·격군실을 쏘면 고장 +1', charge: 1.35, rooms: ['helm', 'oars'], extra: 1 }, blurb: '가장 작은 총통. 두 발로 결계를 두드림' },
   // 왜선 무기: 일반 명칭만 씀
-  jochong: { id: 'jochong', name: '조총 일제사격', power: 2, charge: 13, dmg: 1, shots: 3, breach: 0, fire: 0, crewDmg: 8,
-    acc: { far: 0.35, mid: 0.7, near: 0.85 }, blurb: '조총을 한꺼번에 쏨. 가까울수록 무서움' },
-  waepo: { id: 'waepo', name: '왜 대포', power: 2, charge: 15, dmg: 2, shots: 1, breach: 0.4, fire: 0, crewDmg: 12,
-    acc: { far: 0.8, mid: 0.9, near: 0.9 }, blurb: '왜선에 실은 대포' },
-  bulhwasal: { id: 'bulhwasal', name: '불화살', power: 1, charge: 10, dmg: 1, shots: 1, breach: 0, fire: 0.5, crewDmg: 5,
-    acc: { far: 0.6, mid: 0.9, near: 0.95 }, blurb: '불을 붙인 화살. 맞은 방에 불이 잘 붙음' },
+  jochong: { id: 'jochong', name: '조총 일제사격', power: 2, charge: 13, dmg: 1, shots: 3, breach: 0, fire: 0, crewDmg: 8, acc: 0.8,
+    spec: { at: 'near', text: '4발씩, 선원 피해 1.5배', shots: 4, crewMul: 1.5 }, blurb: '조총을 한꺼번에 쏨. 붙으면 사람을 노림' },
+  waepo: { id: 'waepo', name: '왜 대포', power: 2, charge: 15, dmg: 2, shots: 1, breach: 0.4, fire: 0, crewDmg: 12, acc: 0.85,
+    spec: { at: 'far', text: '구멍 확률 ↑', breach: 0.7 }, blurb: '왜선에 실은 대포' },
+  bulhwasal: { id: 'bulhwasal', name: '불화살', power: 1, charge: 10, dmg: 1, shots: 1, breach: 0, fire: 0.5, crewDmg: 5, acc: 0.85,
+    spec: { at: 'far', text: '불 붙을 확률 2배 (멀리서 불화살 비)', fireMul: 2 }, blurb: '불을 붙인 화살. 맞은 방에 불이 잘 붙음' },
 };
 
 /** 판옥선 평면 (7×4칸). 좌현·우현 포갑판이 바깥을 감싸고 결계실·배수실·의원실은 안쪽 */
@@ -92,7 +104,7 @@ export const PANOKSEON: ShipDef = {
 };
 
 export const WAESEON: ShipDef = {
-  id: 'waeseon', name: '왜선', hull: 12, reactor: 8, prefers: 'near',
+  id: 'waeseon', name: '왜선', hull: 15, reactor: 8, prefers: 'near',
   rooms: [
     { id: 'oars', sys: 'oars', x: 0, y: 0, w: 2, h: 1 },
     { id: 'deck', name: '빈 방', x: 0, y: 1, w: 2, h: 1 },

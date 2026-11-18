@@ -1,6 +1,6 @@
 // 전투 봇: 밸런스 시험(봇끼리 대결)과 적 왜선 조종에 같이 쓴다.
 import { GUN_SYS, type SystemId } from './data';
-import type { Battle, Crew, Ship, Side } from './battle';
+import { specActive, type Battle, type Crew, type Ship, type Side } from './battle';
 
 export interface BotOptions {
   /** 모든 총통이 충전될 때까지 기다렸다 한꺼번에 쏨 */
@@ -33,15 +33,21 @@ export function botThink(b: Battle, side: Side, o: BotOptions = {}): void {
   const tgt = (b.maxPower(enemy, 'ward') >= 2 && wardRoom ? wardRoom : gunRoom ?? enemy.rooms[0]).id;
   const powered = s.weapons.filter((w) => w.powered);
   const ready = powered.length > 0 && powered.every((w) => w.charge >= w.def.charge - 0.05);
-  if (!o.volley) s.weapons.forEach((_, i) => b.setTarget(side, i, tgt));
+  // 방 조건 특화가 켜진 총통은 그 방을 노림 (예: 근접 황자 → 격군실)
+  const pick = (i: number) => {
+    const sp = s.weapons[i].def.spec;
+    const room = specActive(s.weapons[i].def, b.distance) && sp.rooms ? sp.rooms.map((k) => b.roomOf(enemy, k)).find((r) => r) : undefined;
+    return room && b.maxPower(enemy, 'ward') < 2 ? room.id : tgt; // 결계가 꺼졌을 때만
+  };
+  if (!o.volley) s.weapons.forEach((_, i) => b.setTarget(side, i, pick(i)));
   else if (!ready) s.weapons.forEach((_, i) => b.setTarget(side, i, null));
   else {
     // 일제 사격: 가벼운 총통이 먼저 결계를 벗기고, 무거운 총통은 다음 생각 때 쏨
     const minDmg = Math.min(...powered.map((w) => w.def.dmg));
-    s.weapons.forEach((w, i) => b.setTarget(side, i, w.def.dmg === minDmg ? tgt : null));
+    s.weapons.forEach((w, i) => b.setTarget(side, i, w.def.dmg === minDmg ? pick(i) : null));
   }
   if (o.volley && powered.some((w) => w.charge < w.def.charge * 0.3) && powered.some((w) => w.charge >= w.def.charge - 0.05))
-    s.weapons.forEach((w, i) => { if (w.charge >= w.def.charge - 0.05) b.setTarget(side, i, tgt); });
+    s.weapons.forEach((w, i) => { if (w.charge >= w.def.charge - 0.05) b.setTarget(side, i, pick(i)); });
   // 3) 선원
   if (o.repairs !== false) crewThink(b, s);
 }

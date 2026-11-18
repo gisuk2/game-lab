@@ -65,3 +65,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #modal .choices button:hover { border-color: #f2d98a; }
 #modal .choices small { color: #b8a888; }
 .vol { font-size: 13px; display: flex; gap: 4px; align-items: center; cursor: pointer; }
+.wpn .spec { color: #8a7a5a; }
+.wpn .spec.on { color: #ffd36b; }
+#modal .choices small .ours { display: block; color: #9fe09f; }
+#modal .choices small .theirs { display: block; color: #ff9a8a; }

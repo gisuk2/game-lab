@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Battle, Rng } from '../src/sim/battle';
+import { Battle, Rng, specActive } from '../src/sim/battle';
 import { FORMATION_COOLDOWN, PANOKSEON, RULES, WAESEON, WEAPONS } from '../src/sim/data';
 import { fallbackWeights, rollScout, scoutChance } from '../src/sim/encounter';
 import { runBotBattle } from '../src/sim/bot';
@@ -84,20 +84,20 @@ describe('마력', () => {
 
 describe('총통과 결계', () => {
   it('마력을 꽂아야 충전되고, 조준하면 다 찬 순간 발사', () => {
-    const b = fresh('near'); calm(b);
-    const w = b.ships[0].weapons[1]; // 황자 9초
+    const b = fresh('mid'); calm(b);
+    const w = b.ships[0].weapons[1]; // 황자 (2발)
     run(b, 3); expect(w.charge).toBe(0);
     b.toggleWeapon(0, 1, true); b.setTarget(0, 1, 'oars');
     run(b, w.def.charge - 0.5); expect(b.projectiles.length).toBe(0);
-    run(b, 1); expect(b.projectiles.length).toBe(1);
+    run(b, 1); expect(b.projectiles.length).toBe(w.def.shots);
   });
   it('일제 사격을 켜면 조준한 총통이 다 찰 때까지 기다렸다 같이 쏨', () => {
-    const b = fresh('near'); calm(b); const s = b.ships[0]; s.volley = true;
+    const b = fresh('mid'); calm(b); const s = b.ships[0]; s.volley = true;
     b.toggleWeapon(0, 0, true); b.toggleWeapon(0, 1, true); b.setTarget(0, 0, 'ward'); b.setTarget(0, 1, 'ward');
-    run(b, s.weapons[0].def.charge - 0.3); // 지자(12초)가 아직 덜 참, 황자(13초)도 덜 참
+    run(b, s.weapons[0].def.charge - 0.3); // 지자(12초)·황자(14초) 아직 덜 참
     expect(b.projectiles.length).toBe(0);
     run(b, Math.max(s.weapons[0].def.charge, s.weapons[1].def.charge) - s.weapons[0].def.charge + 0.6);
-    expect(b.projectiles.length).toBe(2);
+    expect(b.projectiles.length).toBe(s.weapons[0].def.shots + s.weapons[1].def.shots);
   });
   it('천자총통은 결계 한 겹을 뚫고 피해 −1', () => {
     const b = fresh('far'); const e = b.ships[1]; e.crew.forEach((c) => { c.room = 'guns'; });
@@ -124,11 +124,9 @@ describe('총통과 결계', () => {
     s.crew[0].alive = false; b.step();
     expect(b.evasion(s)).toBe(0);
   });
-  it('거리마다 명중률이 다름: 조총은 원거리에서 약함', () => {
+  it('명중률은 거리와 상관없이 같음 (거리는 보너스만 켬)', () => {
     const far = fresh('far'); const near = fresh('near');
-    const j = WAESEON.weapons[0].id;
-    expect(far.hitChance(1, far.ships[1].weapons[0].def)).toBeLessThan(near.hitChance(1, near.ships[1].weapons[0].def));
-    expect(j).toBe('jochong');
+    expect(far.hitChance(1, WEAPONS.jochong)).toBe(near.hitChance(1, WEAPONS.jochong));
   });
   it('맞으면 선체·시스템·선원 피해 (천자총통, 원거리 명중 100%)', () => {
     const b = fresh('far'); const e = b.ships[1];
@@ -273,15 +271,69 @@ describe('승패', () => {
     b.step();
     expect(b.result?.winner).toBe(0);
   });
-  it('봇끼리 싸우면 10분 안에 끝나고, 원거리가 근접보다 유리', () => {
-    let farWin = 0; let nearWin = 0;
-    for (let seed = 1; seed <= 30; seed++) {
-      const f = runBotBattle(new Battle(PANOKSEON, WAESEON, 'far', { seed }), [{ volley: true }, {}]);
-      const n = runBotBattle(new Battle(PANOKSEON, WAESEON, 'near', { seed }), [{ volley: true }, {}]);
-      expect(f.result === null).toBe(false); expect(n.result === null).toBe(false);
-      if (f.result?.winner === 0) farWin++;
-      if (n.result?.winner === 0) nearWin++;
+  it('봇끼리 싸우면 10분 안에 끝나고, 어느 거리도 판을 정해 버리지 않음 (승률 40~95%)', () => {
+    for (const d of ['far', 'mid', 'near'] as const) {
+      let win = 0;
+      for (let seed = 1; seed <= 30; seed++) {
+        const b = runBotBattle(new Battle(PANOKSEON, WAESEON, d, { seed }), [{ volley: true }, {}]);
+        expect(b.result === null).toBe(false);
+        if (b.result?.winner === 0) win++;
+      }
+      expect(win).toBeGreaterThanOrEqual(12); expect(win).toBeLessThanOrEqual(29);
     }
-    expect(farWin).toBeGreaterThan(nearWin);
+  });
+});
+
+describe('무기 거리 특화 (특화 거리에서만 보너스)', () => {
+  const sure = (id: string, spec?: object) => ({ ...WEAPONS[id], acc: 1, spec: { ...WEAPONS[id].spec, ...spec } });
+  const hit = (b: Battle, w: ReturnType<typeof sure>, room: string, spec: boolean) => {
+    b.projectiles.push({ from: 0, weapon: w, target: room, t: 0, total: 0.05, spec }); b.step();
+  };
+  it('특화 거리가 맞을 때만 켜짐', () => {
+    expect(specActive(WEAPONS.hyeonja, 'mid')).toBe(true);
+    expect(specActive(WEAPONS.hyeonja, 'far')).toBe(false);
+  });
+  it('현자총통: 중거리에선 3발, 다른 거리에선 2발', () => {
+    const shots = (d: 'mid' | 'far') => {
+      const b = fresh(d); calm(b); const s = b.ships[0];
+      s.weapons[0].def = WEAPONS.hyeonja; b.toggleWeapon(0, 0, true); b.setTarget(0, 0, 'ward');
+      run(b, WEAPONS.hyeonja.charge + 0.5); return b.projectiles.length;
+    };
+    expect(shots('mid')).toBe(3);
+    expect(shots('far')).toBe(2);
+  });
+  it('천자총통: 원거리에선 결계 2겹을 뚫고, 아니면 1겹만', () => {
+    const b = fresh('far'); calm(b); const e = b.ships[1];
+    const ward4 = (x: Battle) => { const t = x.ships[1]; t.sys.ward!.level = 4; x.setPower(1, 'ward', 4); };
+    ward4(b); e.wardLayers = 2; hit(b, sure('cheonja'), 'deck', true);
+    expect(e.wardLayers).toBe(0); expect(e.hull).toBe(e.maxHull - 1);
+    const c = fresh('mid'); calm(c); const f = c.ships[1];
+    ward4(c); f.wardLayers = 2; hit(c, sure('cheonja'), 'deck', false);
+    expect(f.wardLayers).toBe(1); expect(f.hull).toBe(f.maxHull);
+  });
+  it('황자총통: 근접에서 장대·격군실을 쏘면 고장 +1', () => {
+    const b = fresh('near'); calm(b); const e = b.ships[1];
+    hit(b, sure('hwangja'), 'oars', true);
+    expect(e.sys.oars!.damage).toBe(2);
+    const c = fresh('near'); calm(c);
+    hit(c, sure('hwangja'), 'guns', true);
+    expect(c.ships[1].sys.guns!.damage).toBe(1);
+  });
+  it('지자총통: 원거리 큰 구멍은 물이 2배로 참', () => {
+    const big = fresh('far'); calm(big); hit(big, sure('jija', { breach: 1 }), 'oars', true);
+    const small = fresh('far'); calm(small); hit(small, { ...sure('jija'), breach: 1 }, 'oars', false);
+    expect(big.room(big.ships[1], 'oars').bigBreach).toBe(true);
+    expect(small.room(small.ships[1], 'oars').bigBreach).toBe(false);
+    for (const b of [big, small]) { b.ships[1].crew.forEach((c) => { c.alive = true; }); run(b, 3); }
+    expect(big.room(big.ships[1], 'oars').water).toBeGreaterThan(small.room(small.ships[1], 'oars').water * 1.8);
+  });
+  it('조총: 근접에선 선원 피해 1.5배', () => {
+    const dmg = (spec: boolean) => {
+      const b = new Battle(WAESEON, PANOKSEON, 'near', { seed: 1 }); const T = b.ships[1];
+      T.crew.forEach((c) => { c.room = 'medic'; });
+      b.projectiles.push({ from: 0, weapon: { ...WEAPONS.jochong, acc: 1 }, target: 'medic', t: 0, total: 0.05, spec }); b.step();
+      return 100 - T.crew[0].hp;
+    };
+    expect(dmg(true)).toBeCloseTo(dmg(false) * 1.5, 0);
   });
 });

@@ -1,9 +1,9 @@
 // 이세계 수군 — 전투 화면 실험판 (SEA-1). 그림은 도형·아이콘만.
-import { Battle, Rng, type BattleEvent, type CrewTask, type Ship, type Side } from '../sim/battle';
+import { Battle, Rng, specActive, type BattleEvent, type CrewTask, type Ship, type Side } from '../sim/battle';
 import { botThink } from '../sim/bot';
 import {
-  DISTANCE_NAME, FORMATIONS, MAN_BONUS, PANOKSEON, RULES, SYSTEM_ICON, SYSTEM_NAME, SYSTEM_ORDER, WAESEON,
-  type Distance, type FormationId, type SystemId,
+  DISTANCE_NAME, FORMATIONS, MAN_BONUS, PANOKSEON, RULES, SYSTEM_ICON, SYSTEM_NAME, SYSTEM_ORDER, WAESEON, WEAPONS,
+  type Distance, type ShipDef, type FormationId, type SystemId,
 } from '../sim/data';
 import { DISTANCES, rollScout, type ScoutResult } from '../sim/encounter';
 import { crewPos, doorRect, roomAt, roomRect, shipSize, type ShipView } from './layout';
@@ -13,11 +13,12 @@ const VIEWS: [ShipView, ShipView] = [
   { ox: 90, oy: 170, cell: 68, flip: false },
   { ox: 880, oy: 236, cell: 60, flip: true },
 ];
-const DIST_HINT: Record<Distance, string> = {
-  far: '우리 총통이 유리 · 조총은 거의 안 닿음',
-  mid: '양쪽 다 무난',
-  near: '왜선 조총이 가장 무서움 · 큰 총통은 덜 맞음',
-};
+/** 이 거리에서 켜지는 무기 특화 보너스 목록 (조우 창) */
+function distHint(me: ShipDef, foe: ShipDef, d: Distance): string {
+  const list = (s: ShipDef) => s.weapons.map((m) => WEAPONS[m.id]).filter((w) => w.spec.at === d).map((w) => `${w.name}: ${w.spec.text}`);
+  const ours = list(me); const theirs = list(foe);
+  return `<span class="ours">✨ 우리 ${ours.length ? ours.join(' · ') : '— 없음'}</span><span class="theirs">⚠ 왜선 ${theirs.length ? theirs.join(' · ') : '— 없음'}</span>`;
+}
 const KIND_COLOR: Partial<Record<BattleEvent['kind'], string>> = {
   hit: '#ff6b5a', miss: '#b8b8b8', absorb: '#7fd0ff', breach: '#5fa8ff', fire: '#ffae3d', death: '#ff3d3d', sysdown: '#ffae3d',
 };
@@ -88,8 +89,8 @@ export class SeaApp {
       <div class="roll">정찰 판정 — 🔭 망원경 ${scope}등급 · 성공률 <b>${Math.round(s.chance * 100)}%</b><br>
       ${s.success ? '<span class="ok">성공!</span> 싸울 거리를 고르세요.' : `<span class="bad">실패…</span> 왜선이 먼저 다가왔다.`}</div>`;
     const btns = s.success
-      ? DISTANCES.map((d) => `<button data-dist="${d}"><b>${DISTANCE_NAME[d]}</b><small>${DIST_HINT[d]}</small></button>`).join('')
-      : `<button data-dist="${s.forced}"><b>${DISTANCE_NAME[s.forced!]}에서 싸운다</b><small>${DIST_HINT[s.forced!]}</small></button>`;
+      ? DISTANCES.map((d) => `<button data-dist="${d}"><b>${DISTANCE_NAME[d]}</b><small>${distHint(PANOKSEON, WAESEON, d)}</small></button>`).join('')
+      : `<button data-dist="${s.forced}"><b>${DISTANCE_NAME[s.forced!]}에서 싸운다</b><small>${distHint(PANOKSEON, WAESEON, s.forced!)}</small></button>`;
     this.showModal(`${head}<div class="choices">${btns}</div>`);
     this.modal.querySelectorAll<HTMLButtonElement>('[data-dist]').forEach((el) => el.onclick = () => this.start(el.dataset.dist as Distance));
   }
@@ -248,8 +249,8 @@ export class SeaApp {
       const full = w.charge >= w.def.charge;
       const stalled = w.powered && !b.gunLive(s, i);
       const tgt = !w.powered ? (w.want ? '⏳ 고치면 다시 켜짐' : '꺼짐 · 클릭해서 켜기') : stalled ? `⚠ ${SYSTEM_NAME[w.mount]} 고장·침수 — 충전 멈춤` : w.target ? `→ ${this.roomName(b.ships[1], w.target)}` : w.powered ? '클릭해서 조준' : (w.want ? '⏳ 고치면 다시 켜짐' : '꺼짐 · 클릭해서 켜기');
-      return `<button class="wpn ${w.powered ? 'on' : ''} ${this.aim === i ? 'aim' : ''} ${full ? 'ready' : ''}" data-w="${i}" title="${w.def.blurb}">
-        <b>${i + 1}. ${w.def.name}</b><small>${SYSTEM_NAME[w.mount]}</small><span class="pw">${'◆'.repeat(w.def.power)}</span>
+      return `<button class="wpn ${w.powered ? 'on' : ''} ${this.aim === i ? 'aim' : ''} ${full ? 'ready' : ''}" data-w="${i}" title="${w.def.blurb}&#10;${DISTANCE_NAME[w.def.spec.at]} 특화: ${w.def.spec.text}">
+        <b>${i + 1}. ${w.def.name} <span class="pw">${'◆'.repeat(w.def.power)}</span></b><small>${SYSTEM_NAME[w.mount]} · <span class="spec ${specActive(w.def, b.distance) ? 'on' : ''}">${specActive(w.def, b.distance) ? '✨ 특화 켜짐' : `${DISTANCE_NAME[w.def.spec.at]} 특화`}</span></small>
         <span class="bar"><i data-charge="${i}"></i></span><small>${tgt}</small></button>`;
     }).join('');
     const forms = (Object.keys(FORMATIONS) as FormationId[]).map((f) => {

@@ -23,7 +23,7 @@ export class Rng {
 export type Side = 0 | 1;
 /** want = 플레이어가 원한 마력. 고장·침수로 빠졌다가 고쳐지면 저절로 다시 꽂힘 */
 export interface SysState { level: number; power: number; want: number; damage: number; repair: number; burn: number }
-export interface Room extends RoomDef { water: number; fire: number; breach: boolean; breachRepair: number; outer: boolean }
+export interface Room extends RoomDef { water: number; fire: number; breach: boolean; bigBreach: boolean; breachRepair: number; outer: boolean }
 /** 문: b가 null이면 배수구(바깥 문). x, y = 문 가운데(칸 단위), vert = 세로 벽에 달린 문 */
 export interface Door { id: string; a: string; b: string | null; open: boolean; x: number; y: number; vert: boolean }
 export interface Crew { id: number; name: string; hp: number; maxHp: number; room: string; path: string[]; prog: number; alive: boolean }
@@ -38,7 +38,10 @@ export interface Ship {
   /** 일제 사격: 조준한 총통이 모두 차야 한꺼번에 쏨 (결계 뚫기용) */
   volley: boolean;
 }
-export interface Projectile { from: Side; weapon: WeaponDef; target: string; t: number; total: number }
+export interface Projectile { from: Side; weapon: WeaponDef; target: string; t: number; total: number; spec?: boolean }
+
+/** 이 거리에서 무기의 특화 보너스가 켜지는가 */
+export const specActive = (w: WeaponDef, d: Distance) => w.spec.at === d;
 export type EventKind = 'hit' | 'miss' | 'absorb' | 'breach' | 'fire' | 'death' | 'sysdown' | 'fired';
 export interface BattleEvent { t: number; side: Side; room?: string; kind: EventKind; text: string }
 export type CrewTask = 'move' | 'fire' | 'breach' | 'repair' | 'man' | 'heal' | 'idle';
@@ -92,7 +95,7 @@ function startRoom(def: ShipDef, i: number): string {
 
 export function makeShip(def: ShipDef, side: Side): Ship {
   const { doors, outer } = buildDoors(def);
-  const rooms: Room[] = def.rooms.map((r) => ({ ...r, water: 0, fire: 0, breach: false, breachRepair: 0, outer: outer.has(r.id) }));
+  const rooms: Room[] = def.rooms.map((r) => ({ ...r, water: 0, fire: 0, breach: false, bigBreach: false, breachRepair: 0, outer: outer.has(r.id) }));
   const sys: Partial<Record<SystemId, SysState>> = {};
   for (const [k, lv] of Object.entries(def.systems) as [SystemId, number][]) sys[k] = { level: lv, power: 0, want: 0, damage: 0, repair: 0, burn: 0 };
   return {
@@ -155,7 +158,7 @@ export class Battle {
     return Math.min(0.6, e);
   }
   maxLayers(s: Ship): number { return Math.floor(this.eff(s, 'ward') / 2); }
-  hitChance(attacker: Side, w: WeaponDef): number { return w.acc[this.distance] * (1 - this.evasion(this.ships[other(attacker)])); }
+  hitChance(attacker: Side, w: WeaponDef): number { return w.acc * (1 - this.evasion(this.ships[other(attacker)])); }
   canToggleDoors(s: Ship): boolean { return this.eff(s, 'doors') >= 1; }
   /** 이 총통이 지금 충전될 수 있나: 달린 포갑판의 일하는 마력 안에 들어야 함 */
   gunLive(s: Ship, i: number): boolean {
@@ -273,12 +276,14 @@ export class Battle {
     const live = s.weapons.map((_, i) => this.gunLive(s, i));
     const holding = s.volley && s.weapons.some((w, i) => live[i] && w.target && w.charge < w.def.charge);
     s.weapons.forEach((w, i) => {
-      const bonus = this.manned(s, w.mount) ? 1.1 : 1;
+      const sp = specActive(w.def, this.distance);
+      const bonus = (this.manned(s, w.mount) ? 1.1 : 1) * (sp ? w.def.spec.charge ?? 1 : 1);
       if (live[i]) w.charge = Math.min(w.def.charge, w.charge + dt * (f?.charge ?? 1) * bonus);
       else w.charge = Math.max(0, w.charge - dt * 2);
       if (live[i] && w.charge >= w.def.charge && w.target && !holding) {
         const total = RULES.travel[this.distance];
-        for (let k = 0; k < w.def.shots; k++) this.projectiles.push({ from: s.side, weapon: w.def, target: w.target, t: -k * 0.2, total });
+        const shots = sp ? w.def.spec.shots ?? w.def.shots : w.def.shots;
+        for (let k = 0; k < shots; k++) this.projectiles.push({ from: s.side, weapon: w.def, target: w.target, t: -k * 0.2, total, spec: sp });
         w.charge = 0;
         this.log(other(s.side), 'fired', w.def.name, w.target);
       }
@@ -326,7 +331,7 @@ export class Battle {
       if (r.fire > 0) { r.fire = Math.max(0, r.fire - RULES.fireFightCrew * dt); continue; }
       if (r.breach) {
         r.breachRepair += RULES.repairBreach * dt * rep;
-        if (r.breachRepair >= 1) { r.breach = false; r.breachRepair = 0; }
+        if (r.breachRepair >= 1) { r.breach = false; r.bigBreach = false; r.breachRepair = 0; }
         continue;
       }
       const x = r.sys ? s.sys[r.sys] : undefined;
@@ -341,7 +346,7 @@ export class Battle {
     for (const r of s.rooms) {
       if (!r.breach) continue;
       const drainOpen = s.doors.some((d) => d.b === null && d.a === r.id && d.open);
-      r.water += RULES.inflow[r.outer ? 1 : 0] * dt * (drainOpen ? RULES.drainSplash : 1);
+      r.water += RULES.inflow[r.outer ? 1 : 0] * dt * (drainOpen ? RULES.drainSplash : 1) * (r.bigBreach ? 2 : 1);
     }
     for (const d of s.doors) {
       if (!d.open) continue;
@@ -400,9 +405,9 @@ export class Battle {
   private resolve(p: Projectile) {
     const T = this.ships[other(p.from)]; const w = p.weapon;
     if (!this.rng.chance(this.hitChance(p.from, w))) { this.log(T.side, 'miss', '빗나감', p.target); return; }
-    let dmg = w.dmg;
+    let dmg = w.dmg; const sp = p.spec ? w.spec : null;
     if (T.wardLayers > 0) {
-      const through = Math.min(T.wardLayers, w.pierce ?? 0);
+      const through = Math.min(T.wardLayers, sp?.pierce ?? w.pierce ?? 0);
       if (T.wardLayers > through) { T.wardLayers--; this.log(T.side, 'absorb', '결계가 막음', p.target); return; }
       T.wardLayers -= through; dmg -= through; // 뚫고 들어감
       if (dmg <= 0) { this.log(T.side, 'absorb', '결계가 막음', p.target); return; }
@@ -411,11 +416,13 @@ export class Battle {
     T.hull = Math.max(0, T.hull - dmg);
     this.log(T.side, 'hit', `-${dmg}`, r.id);
     const x = r.sys ? T.sys[r.sys] : undefined;
-    if (x && x.damage < x.level) { x.damage = Math.min(x.level, x.damage + dmg); x.repair = 0; }
-    for (const c of this.crewIn(T, r.id)) c.hp -= w.crewDmg;
-    for (const c of T.crew) if (c.alive && c.path.length && c.room === r.id) c.hp -= w.crewDmg * 0.5;
-    if (!r.breach && this.rng.chance(w.breach)) { r.breach = true; this.log(T.side, 'breach', '구멍!', r.id); }
-    if (this.rng.chance(w.fire) && level(r) < RULES.slowWater) { r.fire = Math.max(r.fire, 0.3); this.log(T.side, 'fire', '불!', r.id); }
+    const extra = sp?.rooms && r.sys && sp.rooms.includes(r.sys) ? sp.extra ?? 0 : 0;
+    if (x && x.damage < x.level) { x.damage = Math.min(x.level, x.damage + dmg + extra); x.repair = 0; }
+    const crewDmg = w.crewDmg * (sp?.crewMul ?? 1);
+    for (const c of this.crewIn(T, r.id)) c.hp -= crewDmg;
+    for (const c of T.crew) if (c.alive && c.path.length && c.room === r.id) c.hp -= crewDmg * 0.5;
+    if (!r.breach && this.rng.chance(sp?.breach ?? w.breach)) { r.breach = true; r.bigBreach = !!sp?.bigBreach; this.log(T.side, 'breach', r.bigBreach ? '큰 구멍!' : '구멍!', r.id); }
+    if (this.rng.chance(w.fire * (sp?.fireMul ?? 1)) && level(r) < RULES.slowWater) { r.fire = Math.max(r.fire, 0.3); this.log(T.side, 'fire', '불!', r.id); }
   }
 
   private checkEnd() {
