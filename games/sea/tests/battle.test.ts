@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Battle, Rng, specActive } from '../src/sim/battle';
 import { FORMATION_COOLDOWN, PANOKSEON, RULES, WAESEON, WEAPONS } from '../src/sim/data';
 import { fallbackWeights, rollScout, scoutChance } from '../src/sim/encounter';
-import { runBotBattle } from '../src/sim/bot';
+import { runBotBattle, SKILL } from '../src/sim/bot';
 
 const fresh = (d: 'far' | 'mid' | 'near' = 'mid', seed = 1) => new Battle(PANOKSEON, WAESEON, d, { seed });
 const run = (b: Battle, sec: number) => { for (let t = 0; t < sec; t += RULES.dt) b.step(); };
@@ -335,5 +335,19 @@ describe('무기 거리 특화 (특화 거리에서만 보너스)', () => {
       return 100 - T.crew[0].hp;
     };
     expect(dmg(true)).toBeCloseTo(dmg(false) * 1.5, 0);
+  });
+});
+
+describe('컨트롤이 승패를 가름 (봇 실력 3단계)', () => {
+  it('손 놓은 봇은 거의 지고, 숙련 봇이 초보 봇보다 많이 이김', () => {
+    const wins = (k: keyof typeof SKILL) => {
+      let w = 0;
+      for (let seed = 1; seed <= 20; seed++) if (runBotBattle(new Battle(PANOKSEON, WAESEON, 'mid', { seed }), [SKILL[k], {}]).result?.winner === 0) w++;
+      return w;
+    };
+    const idle = wins('idle'); const novice = wins('novice'); const expert = wins('expert');
+    expect(idle).toBeLessThanOrEqual(3);
+    expect(expert).toBeGreaterThan(novice);
+    expect(novice).toBeGreaterThan(idle);
   });
 });

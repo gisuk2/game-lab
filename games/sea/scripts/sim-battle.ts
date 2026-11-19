@@ -2,7 +2,7 @@
 // 1) 판옥선끼리: 총통 조합 공정성  2) 판옥선 vs 왜선: 거리 × 진법  3) 정찰 판정을 거친 실제 조우
 import { Battle, Rng } from '../src/sim/battle';
 import { DISTANCE_NAME, FORMATIONS, PANOKSEON, WAESEON, WEAPONS, type Distance, type FormationId, type ShipDef } from '../src/sim/data';
-import { runBotBattle } from '../src/sim/bot';
+import { runBotBattle, SKILL } from '../src/sim/bot';
 import { rollScout } from '../src/sim/encounter';
 
 const N = Number(process.argv[2] ?? 300);
@@ -55,4 +55,16 @@ for (const scope of [0, 1, 2]) {
     if (bt.result?.winner === 0) win++;
   }
   console.log(`| ${scope}등급 | ${pct(ok / N)} | ${pct(win / N)} | ${pct(cnt.far / N)} · ${pct(cnt.mid / N)} · ${pct(cnt.near / N)} |`);
+}
+
+console.log('\n## 4. 봇 실력 3단계 — 컨트롤이 얼마나 중요한가 (판옥선 vs 왜선, 진법 없음)\n');
+console.log('| 실력 | 원거리 | 중거리 | 근접 |');
+console.log('|---|---|---|---|');
+for (const k of ['idle', 'novice', 'expert'] as const) {
+  const row = (['far', 'mid', 'near'] as Distance[]).map((d) => {
+    let w = 0;
+    for (let i = 0; i < N; i++) if (runBotBattle(new Battle(PANOKSEON, WAESEON, d, { seed: 9000 + i }), [SKILL[k], {}]).result?.winner === 0) w++;
+    return pct(w / N);
+  });
+  console.log(`| ${{ idle: '손 놓음', novice: '초보', expert: '숙련' }[k]} | ${row.join(' | ')} |`);
 }

@@ -6,7 +6,7 @@
 |---|---|
 | 상태 | 🛠 개발 중 — SEA-1 전투 한 판 실험판 ✅, 다음: SEA-2 한 바다 |
 | 결정 | [ADR 0005](../../docs/adr/0005-genre-pirate-ship.md) |
-| 설계 | [핵심 설계](../../docs/sea/design/core.md) |
+| 설계 | [핵심 설계](../../docs/sea/design/core.md) · [방향: FTL에서 살릴 것·고칠 것](../../docs/sea/design/direction.md) |
 | 할 일 | [추후 패치 예정](../../docs/sea/backlog.md) |
 | 개발 일지 | [SEA-1 전투 실험판](../../docs/sea/devlog/2026-11-19-sea1-battle.md) |
 

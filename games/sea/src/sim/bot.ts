@@ -9,7 +9,23 @@ export interface BotOptions {
   repairs?: boolean;
   /** 마력 우선순위 */
   powerOrder?: SystemId[];
+  /** 다친 선원을 의원실로 보냄 (기본 켬) */
+  medic?: boolean;
+  /** 몇 초마다 생각하는지 (기본 0.5초) */
+  thinkEvery?: number;
+  /** 처음 한 번만 생각하고 손을 놓음 (방치) */
+  once?: boolean;
 }
+
+/** 봇 실력 3단계: 컨트롤이 승패에 얼마나 중요한지 재는 데 씀 */
+export const SKILL: Record<'idle' | 'novice' | 'expert', BotOptions> = {
+  /** 처음에 마력·조준만 하고 손을 놓음 (선원은 제자리에서만 일함) */
+  idle: { once: true },
+  /** 3초마다 생각, 일제 사격 모름, 다쳐도 의원실에 안 보냄 */
+  novice: { thinkEvery: 3, medic: false },
+  /** 0.5초마다, 일제 사격, 수리·치료 배치 */
+  expert: { volley: true },
+};
 
 const DEFAULT_ORDER: SystemId[] = ['ward', 'helm', 'oars', 'pump', 'medic', 'scope', 'doors'];
 const STATIONS: SystemId[] = ['helm', 'guns', 'oars', 'ward'];
@@ -49,10 +65,10 @@ export function botThink(b: Battle, side: Side, o: BotOptions = {}): void {
   if (o.volley && powered.some((w) => w.charge < w.def.charge * 0.3) && powered.some((w) => w.charge >= w.def.charge - 0.05))
     s.weapons.forEach((w, i) => { if (w.charge >= w.def.charge - 0.05) b.setTarget(side, i, pick(i)); });
   // 3) 선원
-  if (o.repairs !== false) crewThink(b, s);
+  if (o.repairs !== false) crewThink(b, s, o.medic !== false);
 }
 
-function crewThink(b: Battle, s: Ship) {
+function crewThink(b: Battle, s: Ship, useMedic: boolean) {
   const alive = s.crew.filter((c) => c.alive);
   const dest = (c: Crew) => (c.path.length ? c.path[c.path.length - 1] : c.room);
   const station = (i: number) => b.roomOf(s, STATIONS[i % STATIONS.length])?.id ?? s.rooms[0].id;
@@ -60,7 +76,7 @@ function crewThink(b: Battle, s: Ship) {
   const hazards = s.rooms
     .filter((r) => b.waterLevel(r) < 0.6 && (r.fire > 0 || r.breach || (r.sys && (s.sys[r.sys]?.damage ?? 0) > 0)))
     .sort((a, b2) => (b2.fire > 0 ? 3 : b2.breach ? 2 : 1) - (a.fire > 0 ? 3 : a.breach ? 2 : 1));
-  const medic = b.roomOf(s, 'medic');
+  const medic = useMedic ? b.roomOf(s, 'medic') : undefined;
   const taken = new Set<string>();
   alive.forEach((c, i) => {
     if (medic && b.eff(s, 'medic') > 0 && c.hp < c.maxHp * 0.35) { if (dest(c) !== medic.id) b.moveCrew(s.side, c.id, medic.id); return; }
@@ -75,9 +91,14 @@ function crewThink(b: Battle, s: Ship) {
 
 /** 봇끼리 한 판을 끝까지 돌림 */
 export function runBotBattle(b: Battle, opts: [BotOptions, BotOptions], maxT = 600): Battle {
-  let think = 0;
+  const next = [0, 0];
   while (!b.result && b.t < maxT) {
-    if (b.t >= think) { botThink(b, 0, opts[0]); botThink(b, 1, opts[1]); think = b.t + 0.5; }
+    ([0, 1] as Side[]).forEach((i) => {
+      const o = opts[i];
+      if (b.t < next[i]) return;
+      botThink(b, i, o);
+      next[i] = o.once ? Infinity : b.t + (o.thinkEvery ?? 0.5);
+    });
     b.step();
   }
   return b;
