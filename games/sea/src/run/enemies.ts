@@ -33,7 +33,7 @@ export const WAE_ELITE: ShipDef = {
 
 /** 바다 보스: 큰 배, 좌우현 포갑판 (거리는 고정: 중거리 — 페이즈별 거리는 추후) */
 export const WAE_FLAGSHIP: ShipDef = {
-  id: 'wae-flagship', name: '왜 수군 장수의 대장선', hull: 24, reactor: 11, prefers: 'mid',
+  id: 'wae-flagship', name: '왜 수군 장수의 대장선', hull: 26, reactor: 11, prefers: 'mid',
   rooms: [
     { id: 'oars', sys: 'oars', x: 0, y: 0, w: 2, h: 1 },
     { id: 'deck', name: '빈 방', x: 0, y: 1, w: 2, h: 1 },

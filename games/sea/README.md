@@ -6,7 +6,7 @@
 |---|---|
 | 상태 | 🛠 개발 중 — SEA-1 전투 ✅, SEA-2 한 바다 첫 묶음 ✅ (지도·보상·항구), 다음: 이벤트·유물 |
 | 결정 | [ADR 0005](../../docs/adr/0005-genre-pirate-ship.md) |
-| 설계 | [핵심 설계](../../docs/sea/design/core.md) · [방향: FTL에서 살릴 것·고칠 것](../../docs/sea/design/direction.md) |
+| 설계 | [핵심 설계](../../docs/sea/design/core.md) · [방향: FTL에서 살릴 것·고칠 것](../../docs/sea/design/direction.md) · [유물 50개](../../docs/sea/design/relics.md) |
 | 할 일 | [추후 패치 예정](../../docs/sea/backlog.md) |
 | 개발 일지 | [SEA-1 전투 실험판](../../docs/sea/devlog/2026-11-19-sea1-battle.md) · [SEA-2 한 바다](../../docs/sea/devlog/2026-11-19-sea2-voyage.md) |
 

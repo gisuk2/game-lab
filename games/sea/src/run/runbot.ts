@@ -56,6 +56,7 @@ function chooseReward(run: RunState, skill: Skill): number | null {
     if (r.type === 'repair') return hp < 0.6 ? 5 : 0.5;
     if (r.type === 'crew') return run.crew.filter((c) => c.hp > 0).length < 4 ? 4 : 1.5;
     if (r.type === 'book') return 2;
+    if (r.type === 'relic') return 4.5;
     const w = weaponDef(r.item);
     const dps = (w.dmg * w.shots) / w.charge / w.power;
     return 2 + dps * 20 + (r.item.tier ? 1 : 0);

@@ -8,6 +8,7 @@ import {
   node, reachable, repair, repairCost, RUN_RULES, shipDef, takeReward, upgrade, upgradeCost, weaponDef, weaponName,
   type Reward, type RunState,
 } from '../run/run';
+import { RELIC, TIER_NAME } from '../run/relics';
 import { SeaApp } from './SeaApp';
 
 const W = 1280; const H = 720;
@@ -80,7 +81,7 @@ export class RunApp {
     const run = this.run; const foe = enemyFor(run); const n = node(run, run.at!);
     this.runRoot.hidden = true; this.battleRoot.hidden = false; this.battle.active = true;
     this.battle.encounterWith({
-      me: shipDef(run), foe, seed: run.seed * 1000 + run.battles + 1, start: battleOptions(run).start,
+      me: shipDef(run), foe, seed: run.seed * 1000 + run.battles + 1, start: battleOptions(run).start, mods: battleOptions(run).mods,
       formations: run.formations, enemyOpts: enemyBot(foe), fixed: n.kind === 'boss' ? 'mid' : undefined,
       onEnd: (b) => { finishBattle(run, b); this.showRun(); this.render(); },
     });
@@ -171,8 +172,9 @@ export class RunApp {
     const e = edgeOf(run.map, run.at, id);
     const scope = run.systems.scope ?? 0;
     if (n.kind === 'battle' || n.kind === 'elite' || n.kind === 'boss') {
-      if (e?.fog) lines.push('🌫 안개 속이라 안 보임');
-      else if (scope >= 1 || n.kind === 'boss') lines.push(`🔭 ${enemyFor(run, n).name}`);
+      const cipher = run.relics.includes('cipher');
+      if (e?.fog && !cipher) lines.push('🌫 안개 속이라 안 보임');
+      else if (cipher || scope >= 1 || n.kind === 'boss') lines.push(`${cipher ? '🏺' : '🔭'} ${enemyFor(run, n).name}`);
       else lines.push('🔭 망원경이 없어 안 보임');
     }
     if (e?.fog) lines.push(`🌫 안개 항로: 위협 ${RUN_RULES.threatFog}`);
@@ -202,6 +204,7 @@ export class RunApp {
       <div class="rs small">마력로 ${run.reactor}칸 · 결계실 ${run.systems.ward} · 좌현 ${load('guns')}/${run.systems.guns} · 우현 ${load('gunsR')}/${run.systems.gunsR}</div>
       <h4>선원</h4>${crew}
       <h4>총통</h4>${guns}
+      <h4>유물</h4><div class="relics">${run.relics.length ? run.relics.map((id) => `<span class="relic t-${RELIC[id].tier}" title="${RELIC[id].text}${RELIC[id].cost ? ` / 대가: ${RELIC[id].cost}` : ''}">🏺 ${RELIC[id].name}</span>`).join('') : '<span class="small">없음</span>'}</div>
       <h4>진법</h4><div class="small">${run.formations.map((f) => FORMATIONS[f].name).join(' · ')}</div>
       <h4>항해 기록</h4><div class="rlog">${run.log.slice(-5).map((l) => `<div>${l}</div>`).join('')}</div>`;
     this.side.querySelectorAll<HTMLButtonElement>('[data-eq]').forEach((el) => el.onclick = () => {
@@ -272,5 +275,11 @@ function rewardHtml(r: Reward): string {
   }
   if (r.type === 'crew') return `<span class="ic">🧑</span><b>선원 ${r.name}</b><small>조선 수군 장졸. 배에 한 명 더.</small>`;
   if (r.type === 'book') return `<span class="ic">📜</span><b>병서: ${FORMATIONS[r.formation].name}</b><small>${FORMATIONS[r.formation].effect}</small><small>역사: ${FORMATIONS[r.formation].history}</small>`;
+  if (r.type === 'relic') return relicHtml(r.id);
   return `<span class="ic">🔨</span><b>선체 수리 +${r.hull}</b><small>부서진 판재를 갈아 끼움</small>`;
+}
+
+function relicHtml(id: string): string {
+  const d = RELIC[id];
+  return `<span class="ic">🏺</span><b>${d.name}</b><small class="tier t-${d.tier}">유물 · ${TIER_NAME[d.tier]}${d.engine ? ' · ★ 빌드 엔진' : ''}${d.real ? ' · 실존 물건' : ' · 이세계 물건'}</small><small>${d.text}</small>${d.cost ? `<small class="cost">대가: ${d.cost}</small>` : ''}`;
 }

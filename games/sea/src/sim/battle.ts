@@ -37,8 +37,24 @@ export interface Ship {
   formation: FormationId | null; formationCd: number;
   /** 일제 사격: 조준한 총통이 모두 차야 한꺼번에 쏨 (결계 뚫기용) */
   volley: boolean;
+  /** 유물 효과 (run/relics.ts의 modsOf) */
+  mods: ShipMods;
+  /** 거북 등껍질 판: 맞을 때마다 쌓이는 결계 재충전 보너스 */
+  wardBonus: number;
+  /** 오행 부채: 남은 충전 2배 시간 */
+  burst: number;
+  /** 엘프 별자리 망원경: 첫 일제 사격 시각 */
+  firstFireAt: number | null;
 }
-export interface Projectile { from: Side; weapon: WeaponDef; target: string; t: number; total: number; spec?: boolean }
+
+/** 유물이 전투에 주는 효과 */
+export interface ShipMods {
+  chargeStart?: number; chargeMul?: number;
+  farEvadeCut?: number; firstVolleyX2?: boolean;
+  breachRepairMul?: number; fireFightMul?: number;
+  wardStack?: boolean; waterCharge?: number; formationBurst?: boolean;
+}
+export interface Projectile { from: Side; weapon: WeaponDef; target: string; t: number; total: number; spec?: boolean; mul?: number }
 
 /** 이 거리에서 무기의 특화 보너스가 켜지는가 */
 export const specActive = (w: WeaponDef, d: Distance) => w.spec.at === d;
@@ -50,6 +66,8 @@ export interface BattleOptions {
   seed?: number; formation?: [FormationId | null, FormationId | null];
   /** 한 판(항해)에서 이어지는 우리 배 상태: 선체, 선원 체력(0 이하면 이미 쓰러짐) */
   start?: { hull?: number; crewHp?: number[] };
+  /** 유물 효과: [우리, 적] */
+  mods?: [ShipMods | undefined, ShipMods | undefined];
 }
 
 const other = (s: Side): Side => (s === 0 ? 1 : 0);
@@ -106,7 +124,7 @@ export function makeShip(def: ShipDef, side: Side): Ship {
     side, def, hull: def.hull, maxHull: def.hull, reactor: def.reactor, rooms, doors, sys,
     weapons: def.weapons.map((w) => ({ def: w.def ?? WEAPONS[w.id], mount: w.mount, powered: false, want: false, charge: 0, target: null })),
     crew: def.crew.map((name, i) => ({ id: side * 100 + i, name, hp: 100, maxHp: 100, room: startRoom(def, i), path: [], prog: 0, alive: true })),
-    wardLayers: 0, wardTimer: 0, formation: null, formationCd: 0, volley: false,
+    wardLayers: 0, wardTimer: 0, formation: null, formationCd: 0, volley: false, mods: {}, wardBonus: 0, burst: 0, firstFireAt: null,
   };
 }
 
@@ -122,6 +140,10 @@ export class Battle {
     this.rng = new Rng(opts.seed ?? 1);
     this.ships = [makeShip(a, 0), makeShip(b, 1)];
     if (opts.formation) this.ships.forEach((s, i) => { s.formation = opts.formation![i]; });
+    opts.mods?.forEach((m, i) => {
+      if (!m) return; const sh = this.ships[i]; sh.mods = m;
+      if (m.chargeStart) sh.weapons.forEach((w) => { w.charge = w.def.charge * m.chargeStart!; });
+    });
     const st = opts.start; const me = this.ships[0];
     if (st?.hull !== undefined) me.hull = Math.max(1, Math.min(me.maxHull, st.hull));
     st?.crewHp?.forEach((hp, i) => { const c = me.crew[i]; if (!c) return; c.hp = Math.min(c.maxHp, hp); if (hp <= 0) { c.alive = false; c.hp = 0; } });
@@ -165,7 +187,14 @@ export class Battle {
     return Math.min(0.6, e);
   }
   maxLayers(s: Ship): number { return Math.floor(this.eff(s, 'ward') / 2); }
-  hitChance(attacker: Side, w: WeaponDef): number { return w.acc * (1 - this.evasion(this.ships[other(attacker)])); }
+  hitChance(attacker: Side, w: WeaponDef): number {
+    let ev = this.evasion(this.ships[other(attacker)]);
+    const cut = this.ships[attacker].mods.farEvadeCut;
+    if (cut && this.distance === 'far') ev = Math.max(0, ev - cut);
+    return w.acc * (1 - ev);
+  }
+  /** 우리 배에 찬 물 칸 수 (어인의 물항아리) */
+  waterCells(s: Ship): number { return s.rooms.reduce((n, r) => n + r.water, 0); }
   canToggleDoors(s: Ship): boolean { return this.eff(s, 'doors') >= 1; }
   /** 이 총통이 지금 충전될 수 있나: 달린 포갑판의 일하는 마력 안에 들어야 함 */
   gunLive(s: Ship, i: number): boolean {
@@ -222,7 +251,9 @@ export class Battle {
   setFormation(side: Side, f: FormationId): boolean {
     const s = this.ships[side];
     if (s.formationCd > 0 || s.formation === f) return false;
-    s.formation = f; s.formationCd = FORMATION_COOLDOWN; return true;
+    s.formation = f; s.formationCd = FORMATION_COOLDOWN;
+    if (s.mods.formationBurst) s.burst = 3;
+    return true;
   }
 
   // ── 길찾기: 방 사이 문 (배수구 제외) ──
@@ -275,16 +306,17 @@ export class Battle {
     const maxL = this.maxLayers(s);
     if (s.wardLayers > maxL) s.wardLayers = maxL;
     if (s.wardLayers < maxL) {
-      s.wardTimer += dt * (this.manned(s, 'ward') ? 1.25 : 1);
+      s.wardTimer += dt * (this.manned(s, 'ward') ? 1.25 : 1) * (1 + s.wardBonus);
       if (s.wardTimer >= RULES.wardRecharge) { s.wardLayers++; s.wardTimer = 0; }
     } else s.wardTimer = 0;
     // 총통 충전·발사
     const f = s.formation ? FORMATIONS[s.formation] : null;
+    const relicCharge = (s.mods.chargeMul ?? 1) * (1 + (s.mods.waterCharge ?? 0) * this.waterCells(s)) * (s.burst > 0 ? 2 : 1);
     const live = s.weapons.map((_, i) => this.gunLive(s, i));
     const holding = s.volley && s.weapons.some((w, i) => live[i] && w.target && w.charge < w.def.charge);
     s.weapons.forEach((w, i) => {
       const sp = specActive(w.def, this.distance);
-      const bonus = (this.manned(s, w.mount) ? 1.1 : 1) * (sp ? w.def.spec.charge ?? 1 : 1);
+      const bonus = (this.manned(s, w.mount) ? 1.1 : 1) * (sp ? w.def.spec.charge ?? 1 : 1) * relicCharge;
       if (live[i]) w.charge = Math.min(w.def.charge, w.charge + dt * (f?.charge ?? 1) * bonus);
       else w.charge = Math.max(0, w.charge - dt * 2);
       if (live[i] && w.charge >= w.def.charge && w.target && !holding) {
@@ -292,12 +324,16 @@ export class Battle {
         const shots = sp ? w.def.spec.shots ?? w.def.shots : w.def.shots;
         // 일제 사격이면 큰 총통은 조금 늦게 도착: 가벼운 탄이 먼저 결계를 벗김
         const lag = s.volley && w.def.dmg > 1 ? 0.5 : 0;
-        for (let k = 0; k < shots; k++) this.projectiles.push({ from: s.side, weapon: w.def, target: w.target, t: -k * 0.2 - lag, total, spec: sp });
+        // 엘프 별자리 망원경: 처음 쏜 뒤 1초 안에 나간 탄(첫 일제 사격)은 피해 2배
+        if (s.mods.firstVolleyX2 && s.firstFireAt === null) s.firstFireAt = this.t;
+        const mul = s.mods.firstVolleyX2 && s.firstFireAt !== null && this.t - s.firstFireAt < 1 ? 2 : 1;
+        for (let k = 0; k < shots; k++) this.projectiles.push({ from: s.side, weapon: w.def, target: w.target, t: -k * 0.2 - lag, total, spec: sp, mul });
         w.charge = 0;
         this.log(other(s.side), 'fired', w.def.name, w.target);
       }
     });
     if (s.formationCd > 0) s.formationCd = Math.max(0, s.formationCd - dt);
+    if (s.burst > 0) s.burst = Math.max(0, s.burst - dt);
     this.stepCrew(s, dt);
     this.stepWater(s, dt);
     this.stepFire(s, dt);
@@ -337,9 +373,9 @@ export class Battle {
       }
       // 제자리 일: 불 끄기 → 구멍 막기 → 고장 수리
       const r = this.room(s, c.room); const rep = f?.repair ?? 1;
-      if (r.fire > 0) { r.fire = Math.max(0, r.fire - RULES.fireFightCrew * dt); continue; }
+      if (r.fire > 0) { r.fire = Math.max(0, r.fire - RULES.fireFightCrew * dt * (s.mods.fireFightMul ?? 1)); continue; }
       if (r.breach) {
-        r.breachRepair += RULES.repairBreach * dt * rep;
+        r.breachRepair += RULES.repairBreach * dt * rep * (s.mods.breachRepairMul ?? 1);
         if (r.breachRepair >= 1) { r.breach = false; r.bigBreach = false; r.breachRepair = 0; }
         continue;
       }
@@ -414,7 +450,7 @@ export class Battle {
   private resolve(p: Projectile) {
     const T = this.ships[other(p.from)]; const w = p.weapon;
     if (!this.rng.chance(this.hitChance(p.from, w))) { this.log(T.side, 'miss', '빗나감', p.target); return; }
-    let dmg = w.dmg; const sp = p.spec ? w.spec : null;
+    let dmg = w.dmg * (p.mul ?? 1); const sp = p.spec ? w.spec : null;
     if (T.wardLayers > 0) {
       const through = Math.min(T.wardLayers, sp?.pierce ?? w.pierce ?? 0);
       if (T.wardLayers > through) { T.wardLayers--; this.log(T.side, 'absorb', '결계가 막음', p.target); return; }
@@ -423,6 +459,7 @@ export class Battle {
     }
     const r = this.room(T, p.target);
     T.hull = Math.max(0, T.hull - dmg);
+    if (T.mods.wardStack) T.wardBonus = Math.min(1, T.wardBonus + 0.1);
     this.log(T.side, 'hit', `-${dmg}`, r.id);
     const x = r.sys ? T.sys[r.sys] : undefined;
     const extra = sp?.rooms && r.sys && sp.rooms.includes(r.sys) ? sp.extra ?? 0 : 0;

@@ -110,3 +110,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #rmodal .grid button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; margin-bottom: 6px; padding: 6px 10px; background: #2a1f16; border: 1px solid #6a5a3a; text-align: left; }
 #rmodal .grid button:disabled { opacity: 0.4; cursor: default; }
 #rmodal .grid small { color: #b8a888; font-size: 11px; }
+.relics { display: flex; flex-wrap: wrap; gap: 3px; }
+.relic { font-size: 11px; padding: 1px 5px; background: #2a1f16; border: 1px solid #6a5a3a; cursor: help; }
+.relic.t-uncommon, #rmodal .tier.t-uncommon { border-color: #5fa8ff; color: #9fd0ff; }
+.relic.t-rare, #rmodal .tier.t-rare { border-color: #c9a23a; color: #f2d98a; }
+.relic.t-boss, #rmodal .tier.t-boss { border-color: #b23a2a; color: #ff9a8a; }
+#rmodal .card .cost { color: #ff9a8a; }

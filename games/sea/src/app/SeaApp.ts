@@ -31,6 +31,7 @@ const TASK_NAME: Record<CrewTask, string> = { move: '이동 중', fire: '불 끄
 export interface EncounterCtx {
   me: ShipDef; foe: ShipDef; seed: number;
   start?: BattleOptions['start'];
+  mods?: BattleOptions['mods'];
   formations?: FormationId[];
   enemyOpts?: BotOptions;
   /** 보스처럼 거리가 정해진 전투 */
@@ -100,7 +101,7 @@ export class SeaApp {
   encounterWith(ec: EncounterCtx) {
     this.ec = ec; this.seed = ec.seed;
     const { me, foe } = ec;
-    this.b = new Battle(me, foe, 'mid', { seed: this.seed, start: ec.start });
+    this.b = new Battle(me, foe, 'mid', { seed: this.seed, start: ec.start, mods: ec.mods });
     if (ec.fixed) {
       this.showModal(`<h2>🏯 ${foe.name}</h2><p class="say">"저 배만 꺾으면 이 바다를 빠져나갈 수 있다."</p>
         <div class="roll">보스전은 거리가 정해져 있음: <b>${DISTANCE_NAME[ec.fixed]}</b></div>
@@ -123,7 +124,7 @@ export class SeaApp {
   }
 
   start(d: Distance) {
-    this.b = new Battle(this.ec.me, this.ec.foe, d, { seed: this.seed, start: this.ec.start });
+    this.b = new Battle(this.ec.me, this.ec.foe, d, { seed: this.seed, start: this.ec.start, mods: this.ec.mods });
     const b = this.b;
     // 처음 마력: 결계 2 · 총통 · 장대 1 · 격군 2 (원작처럼 미리 꽂아 둠)
     b.setPower(0, 'ward', 99); b.ships[0].weapons.forEach((_, i) => b.toggleWeapon(0, i, true));

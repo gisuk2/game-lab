@@ -4,6 +4,7 @@ import { Battle, Rng, type Result } from '../sim/battle';
 import { PANOKSEON, WEAPONS, type FormationId, type ShipDef, type SystemId, type WeaponDef } from '../sim/data';
 import { scaleEnemy, WAE_CANNON, WAE_ELITE, WAE_FLAGSHIP, WAE_MUSKET, WAE_SMALL } from './enemies';
 import { edgeOf, generateMap, type MapNode, type NodeKind, type SeaMap } from './map';
+import { LIVE_RELICS, modsOf, RELIC } from './relics';
 
 export const RUN_RULES = {
   startGold: 20, startFood: 8,
@@ -34,13 +35,14 @@ export type Reward =
   | { type: 'weapon'; item: WeaponItem }
   | { type: 'crew'; name: string }
   | { type: 'book'; formation: FormationId }
-  | { type: 'repair'; hull: number };
+  | { type: 'repair'; hull: number }
+  | { type: 'relic'; id: string };
 export interface PortOffer { item: WeaponItem; price: number; sold: boolean }
 
 export interface RunState {
   seed: number; map: SeaMap; at: string | null; visited: string[];
   hull: number; maxHull: number; gold: number; food: number; threat: number;
-  crew: RunCrew[]; weapons: WeaponItem[]; formations: FormationId[];
+  crew: RunCrew[]; weapons: WeaponItem[]; formations: FormationId[]; relics: string[];
   systems: Partial<Record<SystemId, number>>; reactor: number;
   phase: Phase; rewards: Reward[] | null; offers: PortOffer[]; eventText: string | null;
   step: number; log: string[]; battles: number; battleTime: number;
@@ -52,7 +54,7 @@ export function newRun(seed: number): RunState {
     hull: PANOKSEON.hull, maxHull: PANOKSEON.hull, gold: RUN_RULES.startGold, food: RUN_RULES.startFood, threat: 0,
     crew: PANOKSEON.crew.map((name) => ({ name, hp: 100 })),
     weapons: PANOKSEON.weapons.map((m) => ({ id: m.id, tier: 0, mount: m.mount })),
-    formations: ['hakik'], systems: { ...PANOKSEON.systems }, reactor: PANOKSEON.reactor,
+    formations: ['hakik'], relics: [], systems: { ...PANOKSEON.systems }, reactor: PANOKSEON.reactor,
     phase: 'map', rewards: null, offers: [], eventText: null, step: 0, log: [], battles: 0, battleTime: 0,
   };
 }
@@ -115,7 +117,7 @@ export function enemyFor(run: RunState, n: MapNode = node(run, run.at!)): ShipDe
 }
 
 export function battleOptions(run: RunState) {
-  return { start: { hull: run.hull, crewHp: aliveCrew(run).map((c) => c.hp) } };
+  return { start: { hull: run.hull, crewHp: aliveCrew(run).map((c) => c.hp) }, mods: [modsOf(run.relics), undefined] as [ReturnType<typeof modsOf>, undefined] };
 }
 
 /** 전투 결과를 판에 반영 */
@@ -137,7 +139,8 @@ export function finishBattle(run: RunState, b: Battle): Result | null {
 
 function addLoot(run: RunState, kind: NodeKind) {
   const r = rngOf(run, 1); const [lo, hi] = RUN_RULES.gold[kind] ?? [0, 0];
-  const g = Math.round(lo + (hi - lo) * r.next()); const f = RUN_RULES.food[kind] ?? 0;
+  const g = Math.round(lo + (hi - lo) * r.next()) + (run.relics.includes('coins') && (kind === 'battle' || kind === 'elite') ? 5 : 0);
+  const f = RUN_RULES.food[kind] ?? 0;
   run.gold += g; run.food += f;
   run.log.push(`🪙 금화 +${g}${f ? ` · 🍚 군량 +${f}` : ''}`);
 }
@@ -148,8 +151,13 @@ export function rollRewards(run: RunState, kind: NodeKind): Reward[] {
   const r = rngOf(run, 2); const out: Reward[] = [];
   const better = kind === 'elite' || kind === 'treasure';
   const weapon = (tier: 0 | 1): Reward => ({ type: 'weapon', item: { id: r.pick(GUN_IDS), tier, mount: null } });
+  // 유물: 정예·보물은 하나 보장(고급·희귀), 일반 전투는 20%로 일반 유물
+  const free = LIVE_RELICS.filter((x) => !run.relics.includes(x.id));
+  const pool0 = free.filter((x) => (better ? x.tier === 'uncommon' || x.tier === 'rare' : x.tier === 'common'));
+  const relicPool = pool0.length ? pool0 : free;
+  if (relicPool.length && (better || r.chance(0.2))) out.push({ type: 'relic', id: r.pick(relicPool).id });
   out.push(weapon(better || r.chance(0.2) ? 1 : 0));
-  if (kind === 'treasure') out.push(weapon(1));
+  if (kind === 'treasure' && out.length < 3) out.push(weapon(1));
   const pool: Reward[] = [{ type: 'repair', hull: RUN_RULES.rewardRepair }];
   if (run.crew.length < RUN_RULES.maxCrew) {
     const free = RUN_RULES.recruits.filter((n) => !run.crew.some((c) => c.name === n));
@@ -168,7 +176,16 @@ export function takeReward(run: RunState, i: number | null): void {
   if (rw?.type === 'crew') { run.crew.push({ name: rw.name, hp: 100 }); run.log.push(`🎁 선원 ${rw.name} 합류`); }
   if (rw?.type === 'book') { run.formations.push(rw.formation); run.log.push('🎁 병서: 진법을 배움'); }
   if (rw?.type === 'repair') { run.hull = Math.min(run.maxHull, run.hull + rw.hull); run.log.push(`🎁 선체 수리 +${rw.hull}`); }
+  if (rw?.type === 'relic') gainRelic(run, rw.id);
   run.rewards = null; run.phase = 'map';
+}
+
+/** 유물 얻기 (얻는 순간 효과가 있는 것은 여기서) */
+export function gainRelic(run: RunState, id: string) {
+  if (run.relics.includes(id)) return;
+  run.relics.push(id);
+  if (id === 'cipher') run.threat = clamp(run.threat + 10, 0, 100);
+  run.log.push(`🏺 유물: ${RELIC[id].name}`);
 }
 
 // ── 총통 달기 ──
