@@ -69,3 +69,44 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .wpn .spec.on { color: #ffd36b; }
 #modal .choices small .ours { display: block; color: #9fe09f; }
 #modal .choices small .theirs { display: block; color: #ff9a8a; }
+
+/* ── 한 바다 항해 화면 (SEA-2) ── */
+#runRoot[hidden], #battleRoot[hidden] { display: none; }
+#rstage { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; transform-origin: 0 0; user-select: none; }
+#mapcv { position: absolute; inset: 0; }
+#rside { position: absolute; left: 12px; top: 14px; width: 226px; height: 692px; overflow-y: auto; padding: 10px 12px; box-sizing: border-box;
+  background: #1b130d; border: 2px solid #4a3a2a; font-size: 13px; line-height: 1.5; }
+#rside h3 { margin: 0 0 6px; color: #f2d98a; font-size: 17px; }
+#rside h4 { margin: 10px 0 4px; color: #c9a23a; font-size: 13px; }
+#rside .small, #rmodal .small { font-size: 12px; color: #b8a888; }
+#rside .bar { display: inline-block; width: 70px; height: 7px; background: #333; vertical-align: middle; }
+#rside .bar i { display: block; height: 100%; background: #b23a2a; }
+.rc { position: relative; padding: 1px 6px; margin-bottom: 3px; background: #2a1f16; overflow: hidden; }
+.rc i { position: absolute; left: 0; bottom: 0; height: 3px; background: #6c6; }
+.rc.dead { opacity: 0.35; text-decoration: line-through; }
+.rw { padding: 3px 6px; margin-bottom: 4px; background: #2a1f16; border: 1px solid #4a3a2a; }
+.rw.stored { opacity: 0.6; }
+.rw .pw { color: #6fd3ff; font-size: 11px; }
+.rw small { display: block; color: #8a7a5a; font-size: 11px; }
+.rw .eq { display: flex; gap: 3px; margin-top: 2px; }
+.rw .eq button { flex: 1; font-size: 11px; padding: 1px 0; background: #241a12; border: 1px solid #4a3a2a; }
+.rw .eq button.on { border-color: #c9a23a; color: #f2d98a; }
+.rlog div { font-size: 11px; color: #cfc0a0; }
+#rtip { position: absolute; z-index: 5; background: rgba(20,14,8,0.95); color: #e8d8b8; border: 1px solid #c9a23a; padding: 6px 10px; font-size: 13px; line-height: 1.5; pointer-events: none; }
+#rmodal { position: absolute; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 10; }
+#rmodal[hidden] { display: none; }
+#rmodal .box { width: 640px; padding: 22px 26px; background: #1e1418; border: 2px solid #c9a23a; }
+#rmodal .box.wide { width: 900px; }
+#rmodal h2 { margin: 0 0 6px; color: #f2d98a; }
+#rmodal h4 { margin: 6px 0; color: #c9a23a; }
+#rmodal .cards { display: flex; gap: 10px; margin: 12px 0; }
+#rmodal .card { flex: 1; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: left; padding: 12px; background: #2a1f16; border: 1px solid #6a5a3a; min-height: 170px; }
+#rmodal .card:hover { border-color: #f2d98a; transform: translateY(-2px); }
+#rmodal .card .ic { font-size: 26px; }
+#rmodal .card small { color: #b8a888; font-size: 12px; }
+#rmodal .card .spec { color: #ffd36b; }
+#rmodal .skip { width: 100%; padding: 10px; background: #2a1f16; border: 1px solid #6a5a3a; margin-top: 6px; }
+#rmodal .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 10px 0; }
+#rmodal .grid button { display: flex; flex-direction: column; align-items: flex-start; width: 100%; margin-bottom: 6px; padding: 6px 10px; background: #2a1f16; border: 1px solid #6a5a3a; text-align: left; }
+#rmodal .grid button:disabled { opacity: 0.4; cursor: default; }
+#rmodal .grid small { color: #b8a888; font-size: 11px; }

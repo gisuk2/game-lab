@@ -1,6 +1,6 @@
 // 이세계 수군 — 전투 화면 실험판 (SEA-1). 그림은 도형·아이콘만.
-import { Battle, Rng, specActive, type BattleEvent, type CrewTask, type Ship, type Side } from '../sim/battle';
-import { botThink } from '../sim/bot';
+import { Battle, Rng, specActive, type BattleOptions, type BattleEvent, type CrewTask, type Ship, type Side } from '../sim/battle';
+import { botThink, type BotOptions } from '../sim/bot';
 import {
   DISTANCE_NAME, FORMATIONS, MAN_BONUS, PANOKSEON, RULES, SYSTEM_ICON, SYSTEM_NAME, SYSTEM_ORDER, WAESEON, WEAPONS,
   type Distance, type ShipDef, type FormationId, type SystemId,
@@ -26,6 +26,17 @@ const KIND_COLOR: Partial<Record<BattleEvent['kind'], string>> = {
 const SHORT: Record<SystemId, string> = { helm: '장대', oars: '격군', ward: '결계', guns: '좌현포', gunsR: '우현포', pump: '배수', medic: '의원', scope: '망원경', doors: '빗장' };
 const TASK_ICON: Partial<Record<CrewTask, string>> = { fire: '🧯', breach: '🪵', repair: '🔧', man: '⭐', heal: '💚' };
 const TASK_NAME: Record<CrewTask, string> = { move: '이동 중', fire: '불 끄는 중', breach: '구멍 막는 중', repair: '수리 중', man: '자리를 지킴', heal: '치료 중', idle: '쉬는 중' };
+
+/** 한 판(항해) 화면이 전투를 맡길 때 넘기는 것 */
+export interface EncounterCtx {
+  me: ShipDef; foe: ShipDef; seed: number;
+  start?: BattleOptions['start'];
+  formations?: FormationId[];
+  enemyOpts?: BotOptions;
+  /** 보스처럼 거리가 정해진 전투 */
+  fixed?: Distance;
+  onEnd?: (b: Battle) => void;
+}
 
 interface Float { x: number; y: number; text: string; color: string; ttl: number }
 
@@ -54,8 +65,11 @@ export class SeaApp {
   private dragged = false;
   private warned = new Set<number>();
   private logLines: string[] = [];
+  private ec: EncounterCtx = { me: PANOKSEON, foe: WAESEON, seed: 1 };
+  /** 화면에 보일 때만 키보드를 받음 */
+  active = true;
 
-  constructor(root: HTMLElement) {
+  constructor(root: HTMLElement, standalone = true) {
     root.innerHTML = `
       <div id="stage">
         <canvas id="cv" width="${W}" height="${H}"></canvas>
@@ -74,35 +88,48 @@ export class SeaApp {
     const fit = () => { const k = Math.min(innerWidth / W, innerHeight / H); this.stage.style.transform = `scale(${k})`; };
     addEventListener('resize', fit); fit();
     this.bindInput();
-    this.encounter();
+    if (standalone) this.encounter();
+    else this.b = new Battle(PANOKSEON, WAESEON, 'mid');
     requestAnimationFrame((t) => this.frame(t));
   }
 
   // ── 조우: 정찰 판정 → 거리 ──
-  encounter() {
-    this.b = new Battle(PANOKSEON, WAESEON, 'mid', { seed: this.seed });
+  encounter() { this.encounterWith({ me: PANOKSEON, foe: WAESEON, seed: this.seed }); }
+
+  /** 정해진 두 배로 조우 → 거리 → 전투 (항해 화면에서 부름) */
+  encounterWith(ec: EncounterCtx) {
+    this.ec = ec; this.seed = ec.seed;
+    const { me, foe } = ec;
+    this.b = new Battle(me, foe, 'mid', { seed: this.seed, start: ec.start });
+    if (ec.fixed) {
+      this.showModal(`<h2>🏯 ${foe.name}</h2><p class="say">"저 배만 꺾으면 이 바다를 빠져나갈 수 있다."</p>
+        <div class="roll">보스전은 거리가 정해져 있음: <b>${DISTANCE_NAME[ec.fixed]}</b></div>
+        <div class="choices"><button data-dist="${ec.fixed}"><b>싸운다</b><small>${distHint(me, foe, ec.fixed)}</small></button></div>`);
+      this.modal.querySelectorAll<HTMLButtonElement>('[data-dist]').forEach((el) => el.onclick = () => this.start(el.dataset.dist as Distance));
+      return;
+    }
     const scope = this.b.ships[0].sys.scope?.level ?? 0;
-    this.scout = rollScout(new Rng(this.seed * 7919), WAESEON, { scope });
+    this.scout = rollScout(new Rng(this.seed * 7919), foe, { scope });
     const s = this.scout;
-    const head = `<h2>⚓ 왜선 1척이 나타났다!</h2>
-      <p class="say">"놈들은 붙으려 할 것이다. 거리를 먼저 쥐는 쪽이 이긴다."</p>
+    const head = `<h2>⚓ ${foe.name}이(가) 나타났다!</h2>
+      <p class="say">"${foe.prefers === 'near' ? '놈들은 붙으려 할 것이다.' : foe.prefers === 'far' ? '놈들은 멀리서 포를 쏘려 할 것이다.' : '놈들의 속셈을 먼저 읽어야 한다.'} 거리를 먼저 쥐는 쪽이 이긴다."</p>
       <div class="roll">정찰 판정 — 🔭 망원경 ${scope}등급 · 성공률 <b>${Math.round(s.chance * 100)}%</b><br>
       ${s.success ? '<span class="ok">성공!</span> 싸울 거리를 고르세요.' : `<span class="bad">실패…</span> 왜선이 먼저 다가왔다.`}</div>`;
     const btns = s.success
-      ? DISTANCES.map((d) => `<button data-dist="${d}"><b>${DISTANCE_NAME[d]}</b><small>${distHint(PANOKSEON, WAESEON, d)}</small></button>`).join('')
-      : `<button data-dist="${s.forced}"><b>${DISTANCE_NAME[s.forced!]}에서 싸운다</b><small>${distHint(PANOKSEON, WAESEON, s.forced!)}</small></button>`;
+      ? DISTANCES.map((d) => `<button data-dist="${d}"><b>${DISTANCE_NAME[d]}</b><small>${distHint(me, foe, d)}</small></button>`).join('')
+      : `<button data-dist="${s.forced}"><b>${DISTANCE_NAME[s.forced!]}에서 싸운다</b><small>${distHint(me, foe, s.forced!)}</small></button>`;
     this.showModal(`${head}<div class="choices">${btns}</div>`);
     this.modal.querySelectorAll<HTMLButtonElement>('[data-dist]').forEach((el) => el.onclick = () => this.start(el.dataset.dist as Distance));
   }
 
   start(d: Distance) {
-    this.b = new Battle(PANOKSEON, WAESEON, d, { seed: this.seed });
+    this.b = new Battle(this.ec.me, this.ec.foe, d, { seed: this.seed, start: this.ec.start });
     const b = this.b;
     // 처음 마력: 결계 2 · 총통 · 장대 1 · 격군 2 (원작처럼 미리 꽂아 둠)
-    b.setPower(0, 'ward', 2); b.ships[0].weapons.forEach((_, i) => b.toggleWeapon(0, i, true));
-    b.setPower(0, 'helm', 1); b.setPower(0, 'oars', 2);
+    b.setPower(0, 'ward', 99); b.ships[0].weapons.forEach((_, i) => b.toggleWeapon(0, i, true));
+    b.setPower(0, 'helm', 1); b.setPower(0, 'oars', 99);
     b.ships[0].volley = true;
-    botThink(b, 1);
+    botThink(b, 1, this.ec.enemyOpts);
     this.selected.clear(); this.warned.clear(); this.aim = null; this.floats = []; this.evIdx = 0; this.enemyThink = 0; this.logLines = [];
     this.paused = true; this.hideModal();
     this.say(`${DISTANCE_NAME[d]} 전투 시작 — 스페이스바로 시간을 움직이세요`);
@@ -111,6 +138,7 @@ export class SeaApp {
 
   // ── 루프 ──
   private frame(t: number) {
+    if (!this.active) { this.last = t; requestAnimationFrame((n) => this.frame(n)); return; }
     const real = Math.min(0.1, (t - (this.last || t)) / 1000); this.last = t;
     if (!this.paused && !this.b.result && this.modal.hidden) {
       this.acc += real * this.speed;
@@ -127,7 +155,7 @@ export class SeaApp {
   /** 시간 한 칸 (테스트에서 직접 부름) */
   tick() {
     const b = this.b;
-    if (b.t >= this.enemyThink) { botThink(b, 1); this.enemyThink = b.t + 0.5; }
+    if (b.t >= this.enemyThink) { botThink(b, 1, this.ec.enemyOpts); this.enemyThink = b.t + (this.ec.enemyOpts?.thinkEvery ?? 0.5); }
     b.step();
     for (; this.evIdx < b.events.length; this.evIdx++) this.onEvent(b.events[this.evIdx]);
     for (const c of b.ships[0].crew) {
@@ -154,8 +182,9 @@ export class SeaApp {
     const why = win ? (r.reason === 'hull' ? '왜선이 부서져 가라앉았다.' : '왜선의 선원이 모두 쓰러졌다.') : (r.reason === 'hull' ? '판옥선이 버티지 못했다…' : '선원을 모두 잃었다…');
     this.showModal(`<h2>${win ? '🏆 승리' : '💀 패배'}</h2><p>${why}</p>
       <p class="small">전투 시간 ${Math.round(this.b.t)}초 · ${DISTANCE_NAME[this.b.distance]} · 남은 선체 ${this.b.ships[0].hull}/${this.b.ships[0].maxHull}</p>
-      <div class="choices"><button id="again"><b>다음 왜선과 싸우기</b><small>정찰 판정부터 다시</small></button></div>`);
-    this.modal.querySelector<HTMLButtonElement>('#again')!.onclick = () => { this.seed++; this.encounter(); };
+      <div class="choices"><button id="again"><b>${this.ec.onEnd ? (win ? '전리품 챙기기' : '항해 기록 보기') : '다음 왜선과 싸우기'}</b><small>${this.ec.onEnd ? '' : '정찰 판정부터 다시'}</small></button></div>`);
+    const end = this.ec.onEnd;
+    this.modal.querySelector<HTMLButtonElement>('#again')!.onclick = () => { if (end) { this.hideModal(); end(this.b); } else { this.seed++; this.encounter(); } };
   }
 
   // ── 입력 ──
@@ -165,6 +194,7 @@ export class SeaApp {
   }
   private bindInput() {
     addEventListener('keydown', (e) => {
+      if (!this.active) return;
       if (e.code === 'Space') { e.preventDefault(); this.togglePause(); }
       if (e.code === 'Escape') { this.aim = null; this.selected.clear(); this.renderPanel(); }
       if (e.code === 'KeyM') this.sendInjured();
@@ -253,7 +283,7 @@ export class SeaApp {
         <b>${i + 1}. ${w.def.name} <span class="pw">${'◆'.repeat(w.def.power)}</span></b><small>${SYSTEM_NAME[w.mount]} · <span class="spec ${specActive(w.def, b.distance) ? 'on' : ''}">${specActive(w.def, b.distance) ? '✨ 특화 켜짐' : `${DISTANCE_NAME[w.def.spec.at]} 특화`}</span></small>
         <span class="bar"><i data-charge="${i}"></i></span><small>${tgt}</small></button>`;
     }).join('');
-    const forms = (Object.keys(FORMATIONS) as FormationId[]).map((f) => {
+    const forms = (this.ec.formations ?? (Object.keys(FORMATIONS) as FormationId[])).map((f) => {
       const F = FORMATIONS[f]; const on = s.formation === f;
       return `<button class="frm ${on ? 'on' : ''}" data-f="${f}" ${s.formationCd > 0 && !on ? 'disabled' : ''} title="역사: ${F.history}">
         <b>${F.name}</b><small>${F.effect}</small></button>`;

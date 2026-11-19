@@ -46,7 +46,11 @@ export type EventKind = 'hit' | 'miss' | 'absorb' | 'breach' | 'fire' | 'death' 
 export interface BattleEvent { t: number; side: Side; room?: string; kind: EventKind; text: string }
 export type CrewTask = 'move' | 'fire' | 'breach' | 'repair' | 'man' | 'heal' | 'idle';
 export interface Result { winner: Side; reason: 'hull' | 'crew' }
-export interface BattleOptions { seed?: number; formation?: [FormationId | null, FormationId | null] }
+export interface BattleOptions {
+  seed?: number; formation?: [FormationId | null, FormationId | null];
+  /** 한 판(항해)에서 이어지는 우리 배 상태: 선체, 선원 체력(0 이하면 이미 쓰러짐) */
+  start?: { hull?: number; crewHp?: number[] };
+}
 
 const other = (s: Side): Side => (s === 0 ? 1 : 0);
 const area = (r: RoomDef) => r.w * r.h;
@@ -100,7 +104,7 @@ export function makeShip(def: ShipDef, side: Side): Ship {
   for (const [k, lv] of Object.entries(def.systems) as [SystemId, number][]) sys[k] = { level: lv, power: 0, want: 0, damage: 0, repair: 0, burn: 0 };
   return {
     side, def, hull: def.hull, maxHull: def.hull, reactor: def.reactor, rooms, doors, sys,
-    weapons: def.weapons.map((w) => ({ def: WEAPONS[w.id], mount: w.mount, powered: false, want: false, charge: 0, target: null })),
+    weapons: def.weapons.map((w) => ({ def: w.def ?? WEAPONS[w.id], mount: w.mount, powered: false, want: false, charge: 0, target: null })),
     crew: def.crew.map((name, i) => ({ id: side * 100 + i, name, hp: 100, maxHp: 100, room: startRoom(def, i), path: [], prog: 0, alive: true })),
     wardLayers: 0, wardTimer: 0, formation: null, formationCd: 0, volley: false,
   };
@@ -118,6 +122,9 @@ export class Battle {
     this.rng = new Rng(opts.seed ?? 1);
     this.ships = [makeShip(a, 0), makeShip(b, 1)];
     if (opts.formation) this.ships.forEach((s, i) => { s.formation = opts.formation![i]; });
+    const st = opts.start; const me = this.ships[0];
+    if (st?.hull !== undefined) me.hull = Math.max(1, Math.min(me.maxHull, st.hull));
+    st?.crewHp?.forEach((hp, i) => { const c = me.crew[i]; if (!c) return; c.hp = Math.min(c.maxHp, hp); if (hp <= 0) { c.alive = false; c.hp = 0; } });
   }
 
   // ── 조회 ──
@@ -283,7 +290,9 @@ export class Battle {
       if (live[i] && w.charge >= w.def.charge && w.target && !holding) {
         const total = RULES.travel[this.distance];
         const shots = sp ? w.def.spec.shots ?? w.def.shots : w.def.shots;
-        for (let k = 0; k < shots; k++) this.projectiles.push({ from: s.side, weapon: w.def, target: w.target, t: -k * 0.2, total, spec: sp });
+        // 일제 사격이면 큰 총통은 조금 늦게 도착: 가벼운 탄이 먼저 결계를 벗김
+        const lag = s.volley && w.def.dmg > 1 ? 0.5 : 0;
+        for (let k = 0; k < shots; k++) this.projectiles.push({ from: s.side, weapon: w.def, target: w.target, t: -k * 0.2 - lag, total, spec: sp });
         w.charge = 0;
         this.log(other(s.side), 'fired', w.def.name, w.target);
       }

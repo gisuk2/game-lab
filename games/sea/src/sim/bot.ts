@@ -15,14 +15,16 @@ export interface BotOptions {
   thinkEvery?: number;
   /** 처음 한 번만 생각하고 손을 놓음 (방치) */
   once?: boolean;
+  /** 화면의 "일제 사격" 칸을 켠 것처럼: 조준은 한 번, 발사 타이밍은 배가 알아서 */
+  autoVolley?: boolean;
 }
 
 /** 봇 실력 3단계: 컨트롤이 승패에 얼마나 중요한지 재는 데 씀 */
 export const SKILL: Record<'idle' | 'novice' | 'expert', BotOptions> = {
-  /** 처음에 마력·조준만 하고 손을 놓음 (선원은 제자리에서만 일함) */
-  idle: { once: true },
-  /** 3초마다 생각, 일제 사격 모름, 다쳐도 의원실에 안 보냄 */
-  novice: { thinkEvery: 3, medic: false },
+  /** 처음에 마력·조준만 하고 손을 놓음 (선원은 제자리에서만 일함). 일제 사격은 화면 기본값이라 켬 */
+  idle: { once: true, autoVolley: true },
+  /** 3초마다 생각, 다쳐도 의원실에 안 보냄. 일제 사격은 화면 기본값이라 켬 */
+  novice: { thinkEvery: 3, medic: false, autoVolley: true },
   /** 0.5초마다, 일제 사격, 수리·치료 배치 */
   expert: { volley: true },
 };
@@ -55,6 +57,7 @@ export function botThink(b: Battle, side: Side, o: BotOptions = {}): void {
     const room = specActive(s.weapons[i].def, b.distance) && sp.rooms ? sp.rooms.map((k) => b.roomOf(enemy, k)).find((r) => r) : undefined;
     return room && b.maxPower(enemy, 'ward') < 2 ? room.id : tgt; // 결계가 꺼졌을 때만
   };
+  s.volley = !!o.autoVolley;
   if (!o.volley) s.weapons.forEach((_, i) => b.setTarget(side, i, pick(i)));
   else if (!ready) s.weapons.forEach((_, i) => b.setTarget(side, i, null));
   else {

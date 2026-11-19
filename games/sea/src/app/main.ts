@@ -1,5 +1,13 @@
+import { RunApp } from './RunApp';
 import { SeaApp } from './SeaApp';
 
-const app = new SeaApp(document.querySelector<HTMLElement>('#app')!);
-// 실험판 점검용 (헤드리스 자동 플레이에서 씀)
-(window as unknown as { __sea: SeaApp }).__sea = app;
+// 기본 = 한 바다 항해. ?mode=battle 이면 전투 한 판 실험판(SEA-1)
+const root = document.querySelector<HTMLElement>('#app')!;
+const params = new URLSearchParams(location.search);
+const w = window as unknown as { __sea: SeaApp; __run?: RunApp };
+if (params.get('mode') === 'battle') w.__sea = new SeaApp(root);
+else {
+  const seed = params.get('seed');
+  const app = new RunApp(root, seed ? Number(seed) : undefined);
+  w.__run = app; w.__sea = app.battle;
+}

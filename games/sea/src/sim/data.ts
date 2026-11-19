@@ -52,7 +52,8 @@ export interface WeaponSpec {
   /** 이 방들을 쏘면 고장 +extra */
   rooms?: SystemId[]; extra?: number;
 }
-export interface Mount { id: string; mount: SystemId }
+/** 총통 달기. def가 있으면 그걸 씀 (등급 붙은 총통 등) */
+export interface Mount { id: string; mount: SystemId; def?: WeaponDef }
 
 export interface ShipDef {
   id: string; name: string; hull: number; reactor: number;
